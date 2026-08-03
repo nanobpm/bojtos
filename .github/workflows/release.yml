@@ -1,0 +1,67 @@
+name: release
+
+# Triggered by tags of the form `v0.4.0`. Builds & publishes the two Bojtos
+# framework packages, in dependency order, to the npm registry:
+#
+#   @nanobpm/bojtos-kit  →  @nanobpm/bojtos-react
+#
+# (@nanobpm/engine-wasm is published separately from the nano-bpm repo and is
+# consumed here as an ordinary npm dependency.)
+#
+# Authentication is npm OIDC trusted publishing — NO NPM_TOKEN. Each package
+# must have a Trusted Publisher configured on npmjs.com pointing at this repo +
+# this workflow file (see docs/releasing.md). Because this repository is public,
+# npm provenance is enabled (NPM_CONFIG_PROVENANCE=true).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    name: Publish Bojtos packages
+    runs-on: ubuntu-24.04
+    permissions:
+      # id-token: write lets npm exchange the GitHub OIDC token for a
+      # short-lived publish token (trusted publishing); it also signs provenance.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      # npm OIDC trusted publishing needs npm CLI >= 11.5.1; pin a known-good
+      # version for reproducible release builds.
+      - name: Upgrade npm (OIDC-capable)
+        run: npm install -g npm@11.5.1
+
+      - name: Install
+        run: npm ci
+
+      - name: Build & test
+        run: |
+          npm run build
+          npm run test:ci --workspace @nanobpm/bojtos-kit
+
+      - name: Verify tag matches package versions
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          for dir in bojtos-kit bojtos-react; do
+            pkg_version=$(node -p "require('./$dir/package.json').version")
+            if [[ "$pkg_version" != "$tag_version" ]]; then
+              echo "::error::tag $tag_version does not match $dir version $pkg_version"
+              exit 1
+            fi
+          done
+          echo "releasing Bojtos packages $tag_version"
+
+      - name: Publish (dependency order, OIDC + provenance)
+        env:
+          NPM_CONFIG_PROVENANCE: 'true'
+        run: node scripts/release.mjs
