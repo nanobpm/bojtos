@@ -72,6 +72,25 @@ function readPkg(dir) {
   return { file, text, json: JSON.parse(text) };
 }
 
+/** Versions of `name` already on the registry, or `[]` when the package has
+ *  never been published (npm view errors with E404) or the registry can't be
+ *  reached. Returning `[]` on any error is the safe direction: we only ever
+ *  *skip* a publish on a positive match, so a transient view failure re-attempts
+ *  the publish (npm still rejects a genuine duplicate) rather than silently
+ *  skipping a package that actually needs releasing. */
+function publishedVersions(name) {
+  try {
+    const out = execFileSync("npm", ["view", name, "versions", "--json"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const parsed = JSON.parse(out);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [];
+  }
+}
+
 /** Rewrite internal `@nanobpm/*` `file:` deps to `^version`. Returns the
  *  original file text so the caller can restore it. */
 function pinInternalDeps(pkg, version) {
@@ -139,26 +158,44 @@ function main() {
       `${opts.tag ? ` [dist-tag: ${opts.tag}]` : ""}\n`,
   );
 
+  const published = [];
+  const skipped = [];
   for (const p of PACKAGES) {
     const cwd = join(root, p.dir);
+    const already = publishedVersions(p.name).includes(version);
+    console.log(`\n=== ${p.name} (${p.dir}) ===`);
+    if (already) {
+      // Idempotent release: this exact version is already on the registry, so
+      // publishing it again fails (E403 "cannot publish over previously
+      // published versions") and would abort the whole run before the later
+      // packages get their turn. Skip it and carry on. npm checks the registry
+      // even for `--dry-run`, so this skip applies in both modes.
+      console.log(`  already published @ ${version} — skipping.`);
+      skipped.push(p.name);
+      continue;
+    }
     const original = pinInternalDeps(p, version);
     try {
       const args = ["publish", "--access", "public"];
       if (opts.dryRun) args.push("--dry-run");
       if (opts.tag) args.push("--tag", opts.tag);
       args.push(...opts.passthrough);
-      console.log(`\n=== ${p.name} (${p.dir}) ===`);
       // Provenance is inherited from the environment (NPM_CONFIG_PROVENANCE):
       // the release workflow sets it true; a local publish leaves it off.
       execFileSync("npm", args, { cwd, stdio: "inherit" });
+      published.push(p.name);
     } finally {
       // Always restore the committed dependency spec, even on failure.
       writeFileSync(readPkg(p.dir).file, original);
     }
   }
 
+  const verb = opts.dryRun ? "Dry run" : "Release";
   console.log(
-    `\n✓ ${opts.dryRun ? "Dry run complete" : `Published all Bojtos packages @ ${version}`}.`,
+    `\n✓ ${verb} @ ${version} complete — ` +
+      `${opts.dryRun ? "would publish" : "published"}: ` +
+      `${published.length ? published.join(", ") : "none"}` +
+      `${skipped.length ? `; skipped (already published): ${skipped.join(", ")}` : ""}.`,
   );
 }
 
