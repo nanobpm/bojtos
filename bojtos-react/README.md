@@ -51,6 +51,7 @@ consumer must import bpmn-js's diagram CSS once and provide the `.nano-active` /
 ## Build
 
 `dist/` (the tsc-emitted JS + `.d.ts`, with JSX already compiled to
-`react/jsx-runtime` so consumers never re-transform node_modules) is committed
-so `file:` consumers and CI need no build-on-install step. Regenerate with
+`react/jsx-runtime` so consumers never re-transform node_modules) is what ships,
+built by `prepack` on publish. It is **not** committed — `.gitignore` covers it —
+so build before pointing a `file:` consumer at this workspace. Regenerate with
 `npm run build`.

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  type ActivateInstruction,
   type AgentResult,
   type BojtosSession,
   createBojtosSession,
@@ -67,6 +68,74 @@ export interface BojtosControls {
   /** Advance the virtual clock. */
   advanceTime(byMs: number): Snapshot | null;
   /**
+   * Throw a BPMN business error from a waiting job: interrupts the activity via
+   * a matching error boundary/event-subprocess catch, or raises an incident if
+   * uncaught. The job is consumed either way.
+   */
+  throwError(
+    jobKey: string,
+    errorCode: string,
+    errorMessage: string,
+  ): Snapshot | null;
+  /**
+   * Set a job's remaining retries. Used to recover a job parked on a no-retries
+   * incident before resolving that incident; does not itself unblock the job.
+   */
+  updateRetries(jobKey: string, retries: number): Snapshot | null;
+  /**
+   * Resolve an open incident by key, retrying the work that failed. Pair with
+   * {@link updateRetries} to make a failed job activatable again — the
+   * incident/retry loop a demo needs to show recovery.
+   */
+  resolveIncident(incidentKey: string): Snapshot | null;
+  /**
+   * Merge variables into a scope (a process-instance or element-instance key).
+   * With `local`, they are written strictly into that scope; otherwise they
+   * propagate up to the nearest ancestor defining each name.
+   */
+  setVariables(
+    scopeKey: string,
+    variablesJson: string,
+    local: boolean,
+  ): Snapshot | null;
+  /** Broadcast a signal by name to every matching open subscription. */
+  broadcastSignal(signalName: string, variablesJson: string): Snapshot | null;
+  /** Cancel (terminate) a running process instance. */
+  cancelInstance(instanceKey: string): Snapshot | null;
+  /**
+   * Modify a running instance: terminate element instances and/or activate new
+   * ones (Zeebe "modify process instance").
+   */
+  modify(
+    instanceKey: string,
+    activateInstructions: ActivateInstruction[],
+    terminateElementInstanceKeys: string[],
+  ): Snapshot | null;
+  /**
+   * Complete a waiting user task, merging output variables.
+   *
+   * A `userTask` produces no job, so the dispatch loop cannot advance one: this
+   * is the only way a model with a human step reaches its end event. Drive it
+   * from `snapshot.userTasks`.
+   */
+  completeUserTask(userTaskKey: string, variablesJson: string): Snapshot | null;
+  /**
+   * Assign a user task. With `allowOverride` false the command is rejected if
+   * the task already has an assignee.
+   */
+  assignUserTask(
+    userTaskKey: string,
+    assignee: string,
+    allowOverride: boolean,
+  ): Snapshot | null;
+  /** Clear a user task's assignee. */
+  unassignUserTask(userTaskKey: string): Snapshot | null;
+  /**
+   * Update a user task's attributes from a JSON changeset (`candidateGroups`,
+   * `candidateUsers`, `dueDate`, `followUpDate`, `priority`).
+   */
+  updateUserTask(userTaskKey: string, changesetJson: string): Snapshot | null;
+  /**
    * Run the registered worker handlers until the process settles (activate →
    * handler → complete/fail), then reflect the resulting snapshot/events.
    * Register ad-hoc **agent** handlers via `opts.agents` to drive
@@ -91,6 +160,29 @@ export interface BojtosControls {
   /** Re-deploy the diagram on the existing engine, clearing run state. */
   reset(): void;
 }
+
+/**
+ * Session members the hook deliberately does not re-export: the deployment
+ * lifecycle it owns itself, and the low-level activate primitive the dispatch
+ * loop owns.
+ */
+type NotReExported = "deploy" | "free" | "activateJobs";
+
+/**
+ * Compile-time guard. `useBojtos` keeps its session private, so a command it
+ * doesn't re-export is *unreachable* for a consumer rather than merely
+ * inconvenient — which is how `completeUserTask` went missing and left any model
+ * with a user task unfinishable (#1).
+ *
+ * Adding a command to {@link BojtosSession} without a binding here now fails the
+ * build with the offending name, instead of shipping a hole.
+ */
+type UnboundCommands = Exclude<
+  keyof BojtosSession,
+  NotReExported | keyof BojtosControls
+>;
+type AssertNever<T extends never> = T;
+type _EverySessionCommandIsBound = AssertNever<UnboundCommands>;
 
 /**
  * React binding over a headless {@link BojtosSession}: owns the engine's
@@ -218,6 +310,68 @@ export function useBojtos({ bpmn, wasm }: UseBojtosOptions): BojtosControls {
       run((s) => s.correlateMessage(messageName, correlationKey, variablesJson)),
     [run],
   );
+  const throwError = useCallback(
+    (jobKey: string, errorCode: string, errorMessage: string) =>
+      run((s) => s.throwError(jobKey, errorCode, errorMessage)),
+    [run],
+  );
+  const updateRetries = useCallback(
+    (jobKey: string, retries: number) =>
+      run((s) => s.updateRetries(jobKey, retries)),
+    [run],
+  );
+  const resolveIncident = useCallback(
+    (incidentKey: string) => run((s) => s.resolveIncident(incidentKey)),
+    [run],
+  );
+  const setVariables = useCallback(
+    (scopeKey: string, variablesJson: string, local: boolean) =>
+      run((s) => s.setVariables(scopeKey, variablesJson, local)),
+    [run],
+  );
+  const broadcastSignal = useCallback(
+    (signalName: string, variablesJson: string) =>
+      run((s) => s.broadcastSignal(signalName, variablesJson)),
+    [run],
+  );
+  const cancelInstance = useCallback(
+    (instanceKey: string) => run((s) => s.cancelInstance(instanceKey)),
+    [run],
+  );
+  const modify = useCallback(
+    (
+      instanceKey: string,
+      activateInstructions: ActivateInstruction[],
+      terminateElementInstanceKeys: string[],
+    ) =>
+      run((s) =>
+        s.modify(
+          instanceKey,
+          activateInstructions,
+          terminateElementInstanceKeys,
+        ),
+      ),
+    [run],
+  );
+  const completeUserTask = useCallback(
+    (userTaskKey: string, variablesJson: string) =>
+      run((s) => s.completeUserTask(userTaskKey, variablesJson)),
+    [run],
+  );
+  const assignUserTask = useCallback(
+    (userTaskKey: string, assignee: string, allowOverride: boolean) =>
+      run((s) => s.assignUserTask(userTaskKey, assignee, allowOverride)),
+    [run],
+  );
+  const unassignUserTask = useCallback(
+    (userTaskKey: string) => run((s) => s.unassignUserTask(userTaskKey)),
+    [run],
+  );
+  const updateUserTask = useCallback(
+    (userTaskKey: string, changesetJson: string) =>
+      run((s) => s.updateUserTask(userTaskKey, changesetJson)),
+    [run],
+  );
 
   const runWorkers = useCallback(
     async (
@@ -304,6 +458,17 @@ export function useBojtos({ bpmn, wasm }: UseBojtosOptions): BojtosControls {
     failJob,
     advanceTime,
     correlateMessage,
+    throwError,
+    updateRetries,
+    resolveIncident,
+    setVariables,
+    broadcastSignal,
+    cancelInstance,
+    modify,
+    completeUserTask,
+    assignUserTask,
+    unassignUserTask,
+    updateUserTask,
     runWorkers,
     stepWorkers,
     reset,

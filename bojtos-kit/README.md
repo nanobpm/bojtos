@@ -29,5 +29,7 @@ lifecycle and reactive state on top of this kit.
 
 ## Build
 
-`dist/` (the tsc-emitted JS + `.d.ts`) is committed so `file:` consumers and CI
-need no build-on-install step. Regenerate with `npm run build`.
+`dist/` (the tsc-emitted JS + `.d.ts`) is what ships, built by `prepack` on
+publish and by `npm test` locally. It is **not** committed — `.gitignore` covers
+it — so build before pointing a `file:` consumer at this workspace. Regenerate
+with `npm run build`.

@@ -19,6 +19,9 @@ export {
   type DispatchResult,
   type RoundResult,
 } from "./worker.js";
+// Every type reachable from `Snapshot` is exported: a consumer that can read
+// `snapshot.userTasks` must also be able to name `UserTaskDto` to write a
+// helper for it. Keep this list exhaustive when adding to `types.ts`.
 export type {
   Snapshot,
   InstanceDto,
@@ -26,7 +29,14 @@ export type {
   ActivatedJob,
   IncidentDto,
   TimerDto,
+  UserTaskDto,
+  MessageSubscriptionDto,
+  SignalSubscriptionDto,
+  ElementStatDto,
+  SequenceFlowDto,
+  DecisionInstanceDto,
   ActiveEl,
+  ActivateInstruction,
   AgentActivation,
   AgentResult,
   WasmEvent,
