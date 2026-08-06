@@ -2,7 +2,7 @@
   "name": "@nanobpm/bojtos",
   "version": "0.4.0",
   "private": true,
-  "description": "Bojtos — the in-browser BPMN demo framework (ADR 0043). Monorepo for @nanobpm/bojtos-kit (framework-agnostic scenario runner over @nanobpm/engine-wasm) and @nanobpm/bojtos-react (the useBojtos hook + live diagram).",
+  "description": "Bojtos \u2014 the in-browser BPMN demo framework (ADR 0043). Monorepo for @nanobpm/bojtos-kit (framework-agnostic scenario runner over @nanobpm/engine-wasm) and @nanobpm/bojtos-react (the useBojtos hook + live diagram).",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {
@@ -16,7 +16,7 @@
   "scripts": {
     "build": "npm run build --workspace @nanobpm/bojtos-kit && npm run build --workspace @nanobpm/bojtos-react",
     "typecheck": "npm run build --workspace @nanobpm/bojtos-kit && npm run typecheck --workspace @nanobpm/bojtos-kit && npm run typecheck --workspace @nanobpm/bojtos-react",
-    "test": "npm run build && npm run test:ci --workspace @nanobpm/bojtos-kit",
+    "test": "npm run build && npm run test:ci --workspace @nanobpm/bojtos-kit && npm run test:ci --workspace @nanobpm/bojtos-react",
     "release": "node scripts/release.mjs"
   },
   "engines": {

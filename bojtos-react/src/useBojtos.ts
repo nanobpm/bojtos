@@ -18,8 +18,14 @@ import {
 export type BojtosPhase = "loading" | "ready" | "error";
 
 export interface UseBojtosOptions {
-  /** The BPMN diagram XML to deploy. Re-deploys on a fresh engine when it changes. */
-  bpmn: string;
+  /**
+   * The BPMN to deploy. Re-deploys on a fresh engine when it changes.
+   *
+   * Pass an array to deploy several resources into one engine — a called
+   * process alongside its parent, say. `processIds` then lists every deployable
+   * process across all of them, in deployment order.
+   */
+  bpmn: string | string[];
   /**
    * Optional engine wasm source. Pass a `URL` / bytes / `WebAssembly.Module`
    * when the default `import.meta.url` loader can't resolve the binary (the
@@ -30,6 +36,15 @@ export interface UseBojtosOptions {
    * reload the module.
    */
   wasm?: WasmSource;
+  /**
+   * Cap the reactive `events` log at the most recent N entries.
+   *
+   * Every command re-reads the engine's full event log into React state, so a
+   * long-running demo copies an ever-growing array on each step. Set this when
+   * a page runs for a while and only shows a tail; leave it unset to keep the
+   * whole log, which stays the default so existing consumers are unaffected.
+   */
+  maxEvents?: number;
 }
 
 export interface BojtosControls {
@@ -195,7 +210,11 @@ type _EverySessionCommandIsBound = AssertNever<UnboundCommands>;
  * test-run panel is its first consumer (§8 step 2 — dogfooding is the acceptance
  * test).
  */
-export function useBojtos({ bpmn, wasm }: UseBojtosOptions): BojtosControls {
+export function useBojtos({
+  bpmn,
+  wasm,
+  maxEvents,
+}: UseBojtosOptions): BojtosControls {
   const sessionRef = useRef<BojtosSession | null>(null);
   const [phase, setPhase] = useState<BojtosPhase>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -209,15 +228,39 @@ export function useBojtos({ bpmn, wasm }: UseBojtosOptions): BojtosControls {
   const wasmRef = useRef(wasm);
   wasmRef.current = wasm;
 
+  // An array prop has a fresh identity every render, which would re-create the
+  // engine on each one. Key the deploy effect on the content instead.
+  const bpmnKey = Array.isArray(bpmn) ? bpmn.join(" ") : bpmn;
+  const bpmnRef = useRef(bpmn);
+  bpmnRef.current = bpmn;
+
+  // Trim the reactive event log when the consumer asked for a cap.
+  const maxEventsRef = useRef(maxEvents);
+  maxEventsRef.current = maxEvents;
+  const readEvents = useCallback((session: BojtosSession): WasmEvent[] => {
+    const all = session.events();
+    const cap = maxEventsRef.current;
+    return cap !== undefined && cap >= 0 && all.length > cap
+      ? all.slice(all.length - cap)
+      : all;
+  }, []);
+
   const deployInto = useCallback(
     (session: BojtosSession) => {
-      const res = session.deploy(bpmn);
-      setProcessIds(res.processIds);
+      const resources = Array.isArray(bpmnRef.current)
+        ? bpmnRef.current
+        : [bpmnRef.current];
+      // Deploy in order, collecting every deployable process id. A later
+      // resource can reference an earlier one (a call activity's child).
+      const ids: string[] = [];
+      for (const xml of resources) ids.push(...session.deploy(xml).processIds);
+      setProcessIds(ids);
       setSnapshot(null);
       setEvents([]);
       setError(null);
     },
-    [bpmn],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bpmnKey],
   );
 
   useEffect(() => {
@@ -270,7 +313,7 @@ export function useBojtos({ bpmn, wasm }: UseBojtosOptions): BojtosControls {
       try {
         const snap = fn(session);
         setSnapshot(snap);
-        setEvents(session.events());
+        setEvents(readEvents(session));
         setError(null);
         return snap;
       } catch (e) {
@@ -390,7 +433,7 @@ export function useBojtos({ bpmn, wasm }: UseBojtosOptions): BojtosControls {
         // while we awaited — don't publish stale state or read a freed session.
         if (sessionRef.current !== session) return null;
         setSnapshot(settled);
-        setEvents(session.events());
+        setEvents(readEvents(session));
         setError(null);
         return settled;
       } catch (e) {
@@ -398,7 +441,7 @@ export function useBojtos({ bpmn, wasm }: UseBojtosOptions): BojtosControls {
         // Reflect whatever state the engine reached before the drain aborted
         // (e.g. the maxRounds guard) so the view isn't left stale.
         setSnapshot(session.snapshot());
-        setEvents(session.events());
+        setEvents(readEvents(session));
         setError(String(e));
         return null;
       }
@@ -418,13 +461,13 @@ export function useBojtos({ bpmn, wasm }: UseBojtosOptions): BojtosControls {
         // Bail if the session was replaced/freed while we awaited the round.
         if (sessionRef.current !== session) return null;
         setSnapshot(round.snapshot);
-        setEvents(session.events());
+        setEvents(readEvents(session));
         setError(null);
         return round;
       } catch (e) {
         if (sessionRef.current !== session) return null;
         setSnapshot(session.snapshot());
-        setEvents(session.events());
+        setEvents(readEvents(session));
         setError(String(e));
         return null;
       }

@@ -72,6 +72,84 @@ export interface DispatchOptions {
    * whole agent conversation to quiescence.
    */
   agents?: Record<string, AgentHandler>;
+  /**
+   * Let the drain loop move the virtual clock when it runs out of work but a
+   * timer is still pending: it jumps to the next due timer and keeps going.
+   *
+   * Off by default, because advancing time is a decision about what the demo is
+   * showing, not a detail. With it off, a model that waits on a timer settles
+   * with `reason: "timers"` — the loop is *done*, the process isn't — and the
+   * caller advances the clock itself.
+   *
+   * `true` advances as far as needed. `{ maxTotalMs }` sets a **budget for the
+   * whole drain**, not per jump — the loop advances while it can afford to and
+   * then settles with `reason: "timers"`, so "run for up to an hour of virtual
+   * time" is expressible and a `PT24H` timer can't be reached a second at a
+   * time.
+   */
+  advanceTimers?: boolean | { maxTotalMs: number };
+}
+
+/**
+ * Why a drain stopped. `handled === 0` alone can't say: a completed instance, a
+ * human step, a pending timer, a message that never arrived and a job type
+ * nobody registered all look identical from the outside, and each one needs a
+ * different response from the UI above.
+ */
+export type SettleReason =
+  /** No live instances remain — every one completed or was terminated. */
+  | "completed"
+  /** Waiting on a `userTask`; complete it with `session.completeUserTask`. */
+  | "userTasks"
+  /** Waiting on a timer; advance the clock (or pass `advanceTimers`). */
+  | "timers"
+  /** Waiting on a message subscription; publish with `correlateMessage`. */
+  | "messages"
+  /** Waiting on a signal subscription; publish with `broadcastSignal`. */
+  | "signals"
+  /** Jobs are waiting whose job type has no registered handler. */
+  | "unhandledJobs"
+  /** An incident is blocking progress; resolve it to continue. */
+  | "incidents"
+  /** Nothing is running and nothing is waiting — an empty or unstarted engine. */
+  | "idle";
+
+/**
+ * Classify why the loop has nothing left to do. Pure, and exported so a consumer
+ * can label a snapshot it obtained some other way (and so it can be tested
+ * without an engine).
+ *
+ * Order matters: it reports the thing a caller can act on first. Incidents come
+ * before waiting states because an incident is why the wait will never end.
+ */
+export function settleReason(
+  snapshot: Snapshot,
+  handledJobTypes: Iterable<string> = [],
+): SettleReason {
+  const live = snapshot.instances.filter((i) => !i.completed);
+  if (live.length === 0)
+    return snapshot.totalInstances > 0 ? "completed" : "idle";
+  if (snapshot.incidents.length > 0) return "incidents";
+
+  const known = new Set(handledJobTypes);
+  if (snapshot.jobs.some((j) => !known.has(j.jobType))) return "unhandledJobs";
+
+  if (snapshot.userTasks.some((t) => t.state === "Created")) return "userTasks";
+  if (snapshot.timers.length > 0) return "timers";
+  if (snapshot.messageSubscriptions.length > 0) return "messages";
+  if (snapshot.signalSubscriptions.length > 0) return "signals";
+  return "idle";
+}
+
+/** Job types with waiting jobs that no registered handler serves. */
+export function unhandledJobTypes(
+  snapshot: Snapshot,
+  handledJobTypes: Iterable<string> = [],
+): string[] {
+  const known = new Set(handledJobTypes);
+  return [...new Set(snapshot.jobs.map((j) => j.jobType))]
+    .filter((t) => !known.has(t))
+    .sort();
 }
 
 /** What one {@link dispatchRound} pass did. */
@@ -80,6 +158,13 @@ export interface RoundResult {
   snapshot: Snapshot;
   /** How many jobs were completed or failed in this pass. */
   handled: number;
+  /**
+   * Why there was nothing left to do, when `handled === 0`. Undefined while the
+   * round did work — the loop hasn't settled, so there is nothing to explain.
+   */
+  reason?: SettleReason;
+  /** Waiting job types no registered handler serves (usually a typo). */
+  unhandled?: string[];
 }
 
 /** What {@link dispatchWorkers} did. */
@@ -90,6 +175,15 @@ export interface DispatchResult {
   handled: number;
   /** How many activate rounds ran (including the final quiescent one). */
   rounds: number;
+  /**
+   * Why the drain stopped. Always set: a settled drain always has a reason, and
+   * "the loop finished" is not the same claim as "the process finished".
+   */
+  reason: SettleReason;
+  /** Waiting job types no registered handler serves (usually a typo). */
+  unhandled: string[];
+  /** How far the virtual clock was moved, when `advanceTimers` is on. */
+  advancedMs: number;
 }
 
 async function runOne(
@@ -208,9 +302,17 @@ export async function dispatchRound(
   for (const { handler, job } of agentBatch) {
     await runOneAgent(session, handler, job);
   }
+  const snapshot = session.snapshot();
+  const handled = jobBatch.length + agentBatch.length;
+  if (handled > 0) return { snapshot, handled };
+  // Nothing left to do this round — say why, so the caller isn't left to infer
+  // "finished" from "quiet".
+  const known = [...Object.keys(workers), ...Object.keys(agents)];
   return {
-    snapshot: session.snapshot(),
-    handled: jobBatch.length + agentBatch.length,
+    snapshot,
+    handled,
+    reason: settleReason(snapshot, known),
+    unhandled: unhandledJobTypes(snapshot, known),
   };
 }
 
@@ -230,8 +332,16 @@ export async function dispatchWorkers(
   opts: DispatchOptions = {},
 ): Promise<DispatchResult> {
   const maxRounds = opts.maxRounds ?? 1000;
+  const timeBudgetMs =
+    typeof opts.advanceTimers === "object"
+      ? opts.advanceTimers.maxTotalMs
+      : Infinity;
+  const mayAdvance =
+    opts.advanceTimers !== undefined && opts.advanceTimers !== false;
+
   let handled = 0;
   let rounds = 0;
+  let advancedMs = 0;
   for (;;) {
     if (rounds >= maxRounds) {
       throw new Error(
@@ -241,8 +351,36 @@ export async function dispatchWorkers(
     rounds++;
     const round = await dispatchRound(session, workers, opts);
     handled += round.handled;
-    if (round.handled === 0) {
-      return { snapshot: round.snapshot, handled, rounds };
+    if (round.handled > 0) continue;
+
+    // Out of jobs. If the only thing standing between here and more work is the
+    // clock, and the caller asked us to, jump to the next due timer and carry
+    // on — otherwise a timer-bearing model looks finished when it is waiting.
+    if (mayAdvance && round.reason === "timers") {
+      const due = round.snapshot.timers.reduce(
+        (min, t) => Math.min(min, t.dueInMs),
+        Infinity,
+      );
+      // `dueInMs` can be <= 0 for a timer that is already due but hasn't been
+      // triggered; nudge by 1ms so the clock always moves and the loop can't spin.
+      const jump = Math.max(due, 1);
+      // Only jump if the whole hop fits the budget. A partial hop would burn the
+      // budget without firing anything, which is strictly worse than stopping
+      // and telling the caller a timer is still pending.
+      if (Number.isFinite(jump) && advancedMs + jump <= timeBudgetMs) {
+        session.advanceTime(jump);
+        advancedMs += jump;
+        continue;
+      }
     }
+
+    return {
+      snapshot: round.snapshot,
+      handled,
+      rounds,
+      reason: round.reason ?? settleReason(round.snapshot),
+      unhandled: round.unhandled ?? [],
+      advancedMs,
+    };
   }
 }

@@ -20,14 +20,18 @@ export {
   BpmnRuntimeView,
   type BpmnRuntimeViewProps,
 } from "./BpmnRuntimeView.js";
+export { describeRunState, markerKey } from "./runState.js";
 export {
   JobFailure,
+  settleReason,
+  unhandledJobTypes,
   type JobHandler,
   type JobResult,
   type AgentHandler,
   type DispatchOptions,
   type DispatchResult,
   type RoundResult,
+  type SettleReason,
 } from "@nanobpm/bojtos-kit";
 export type {
   BojtosSession,

@@ -27,3 +27,6 @@ jobs:
 
       - name: Test
         run: npm run test:ci --workspace @nanobpm/bojtos-kit
+
+      - name: Test (react)
+        run: npm run test:ci --workspace @nanobpm/bojtos-react
