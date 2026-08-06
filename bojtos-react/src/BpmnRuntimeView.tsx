@@ -162,13 +162,20 @@ export function BpmnRuntimeView({
       className={className}
       style={{ width: "100%", height: "100%", position: "relative" }}
     >
-      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+      <div
+        ref={containerRef}
+        role="img"
+        aria-label={label}
+        style={{ width: "100%", height: "100%" }}
+      />
       {/* The highlights are visual only. Mirror them as text, politely
-          announced, so the run is followable without seeing the diagram. */}
+          announced, so the run is followable without seeing the diagram. No
+          `aria-label` here: on a live region it would override the changing
+          text in the accessible-name computation, so screen readers would
+          announce the static label instead of the run state. */}
       <div
         role="status"
         aria-live="polite"
-        aria-label={label}
         style={{
           position: "absolute",
           width: 1,

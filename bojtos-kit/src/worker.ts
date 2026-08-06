@@ -380,7 +380,16 @@ export async function dispatchWorkers(
       snapshot: round.snapshot,
       handled,
       rounds,
-      reason: round.reason ?? settleReason(round.snapshot),
+      // `round.reason` is always set once `round.handled === 0` (the only way to
+      // reach here), so the fallback is currently unreachable — but if it ever
+      // did fire it must use the same handler set as the round, or it would
+      // recompute against an empty set and flag every job type as unhandled.
+      reason:
+        round.reason ??
+        settleReason(round.snapshot, [
+          ...Object.keys(workers),
+          ...Object.keys(opts.agents ?? {}),
+        ]),
       unhandled: round.unhandled ?? [],
       advancedMs,
     };

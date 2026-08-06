@@ -13,7 +13,7 @@ import {
   type WasmEvent,
   type WasmSource,
 } from "@nanobpm/bojtos-kit";
-import { bpmnKey } from "./runState.js";
+import { bpmnKey, capEvents, resourceList } from "./runState.js";
 
 /** Lifecycle of the in-browser engine load. */
 export type BojtosPhase = "loading" | "ready" | "error";
@@ -240,18 +240,12 @@ export function useBojtos({
   const maxEventsRef = useRef(maxEvents);
   maxEventsRef.current = maxEvents;
   const readEvents = useCallback((session: BojtosSession): WasmEvent[] => {
-    const all = session.events();
-    const cap = maxEventsRef.current;
-    return cap !== undefined && cap >= 0 && all.length > cap
-      ? all.slice(all.length - cap)
-      : all;
+    return capEvents(session.events(), maxEventsRef.current);
   }, []);
 
   const deployInto = useCallback(
     (session: BojtosSession) => {
-      const resources = Array.isArray(bpmnRef.current)
-        ? bpmnRef.current
-        : [bpmnRef.current];
+      const resources = resourceList(bpmnRef.current);
       // Deploy in order, collecting every deployable process id. A later
       // resource can reference an earlier one (a call activity's child).
       const ids: string[] = [];

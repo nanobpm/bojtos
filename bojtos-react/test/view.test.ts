@@ -9,7 +9,13 @@
 // jsdom and is worth a follow-up.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { describeRunState, markerKey, bpmnKey } from "../dist/runState.js";
+import {
+  describeRunState,
+  markerKey,
+  bpmnKey,
+  resourceList,
+  capEvents,
+} from "../dist/runState.js";
 
 test("markerKey is stable across fresh arrays with the same ids", () => {
   // The bug this guards: `snapshot?.activeElementIds ?? []` builds a new array
@@ -34,6 +40,34 @@ test("bpmnKey is stable across fresh arrays but distinguishes real changes", () 
   // ways) but must not collide here, or a real BPMN change would be missed.
   assert.notEqual(bpmnKey(["<a/> ", "<b/>"]), bpmnKey(["<a/>", " <b/>"]));
   assert.notEqual(bpmnKey(["<a/>", "<b/>"]), bpmnKey(["<a/> <b/>"]));
+  // The lone-string case passes through verbatim (no needless re-walk).
+  assert.equal(bpmnKey("<a/>"), "<a/>");
+});
+
+test("resourceList normalizes to an ordered list, preserving order", () => {
+  assert.deepEqual(resourceList("<a/>"), ["<a/>"]);
+  assert.deepEqual(resourceList(["<a/>", "<b/>"]), ["<a/>", "<b/>"]);
+  // Order is significant — a later resource can reference an earlier one.
+  assert.deepEqual(resourceList(["<b/>", "<a/>"]), ["<b/>", "<a/>"]);
+  // A single-element array and a concatenated string are *not* the same list.
+  assert.deepEqual(resourceList(["<a/><b/>"]), ["<a/><b/>"]);
+  assert.notDeepEqual(resourceList(["<a/><b/>"]), resourceList(["<a/>", "<b/>"]));
+});
+
+test("capEvents keeps the most recent up to the cap", () => {
+  const all = [1, 2, 3, 4, 5];
+  // No cap: undefined or negative means keep everything.
+  assert.equal(capEvents(all, undefined), all);
+  assert.equal(capEvents(all, -1), all);
+  // cap >= length: keep everything (same array, no needless copy).
+  assert.equal(capEvents(all, 5), all);
+  assert.equal(capEvents(all, 10), all);
+  // 0 keeps nothing.
+  assert.deepEqual(capEvents(all, 0), []);
+  // A cap below length keeps the most recent, oldest-first order preserved.
+  assert.deepEqual(capEvents(all, 2), [4, 5]);
+  // The input is never mutated.
+  assert.deepEqual(all, [1, 2, 3, 4, 5]);
 });
 
 test("describeRunState puts the run into words for a screen reader", () => {

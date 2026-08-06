@@ -20,7 +20,13 @@ export {
   BpmnRuntimeView,
   type BpmnRuntimeViewProps,
 } from "./BpmnRuntimeView.js";
-export { describeRunState, markerKey, bpmnKey } from "./runState.js";
+export {
+  describeRunState,
+  markerKey,
+  bpmnKey,
+  resourceList,
+  capEvents,
+} from "./runState.js";
 export {
   JobFailure,
   settleReason,
