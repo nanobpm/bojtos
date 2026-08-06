@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import NavigatedViewer from "bpmn-js/lib/NavigatedViewer";
+import { describeRunState, markerKey } from "./runState.js";
 
 interface Canvas {
   zoom(mode: string): void;
@@ -27,6 +28,17 @@ export interface BpmnRuntimeViewProps {
   incidentIds: string[];
   /** Optional class for the container element (it always fills its parent). */
   className?: string;
+  /**
+   * Accessible name for the diagram. The token and incident highlights are
+   * purely visual, so without this a screen-reader user is told nothing at all
+   * about what is running.
+   */
+  label?: string;
+  /**
+   * Map an element id to a human name for the live status announcement — pass
+   * the diagram's element names if you have them. Defaults to the raw id.
+   */
+  elementName?: (elementId: string) => string;
 }
 
 /**
@@ -46,6 +58,8 @@ export function BpmnRuntimeView({
   activeIds,
   incidentIds,
   className,
+  label = "BPMN process diagram",
+  elementName,
 }: BpmnRuntimeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<NavigatedViewer | null>(null);
@@ -133,16 +147,49 @@ export function BpmnRuntimeView({
     tokenOverlaysRef.current = nextOverlays;
   }
 
+  // `activeIds` / `incidentIds` are almost always fresh arrays (`snapshot?.x ??
+  // []`), so depending on their identity re-painted every marker and re-created
+  // every token overlay on every render of the parent — visible churn on a busy
+  // diagram. Depend on the ids themselves instead.
+  const key = markerKey(activeIds, incidentIds);
   useEffect(() => {
     applyMarkers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeIds, incidentIds]);
+  }, [key]);
 
   return (
     <div
-      ref={containerRef}
       className={className}
-      style={{ width: "100%", height: "100%" }}
-    />
+      style={{ width: "100%", height: "100%", position: "relative" }}
+    >
+      <div
+        ref={containerRef}
+        role="img"
+        aria-label={label}
+        style={{ width: "100%", height: "100%" }}
+      />
+      {/* The highlights are visual only. Mirror them as text, politely
+          announced, so the run is followable without seeing the diagram. No
+          `aria-label` here: on a live region it would override the changing
+          text in the accessible-name computation, so screen readers would
+          announce the static label instead of the run state. */}
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          position: "absolute",
+          width: 1,
+          height: 1,
+          margin: -1,
+          padding: 0,
+          overflow: "hidden",
+          clip: "rect(0 0 0 0)",
+          whiteSpace: "nowrap",
+          border: 0,
+        }}
+      >
+        {describeRunState(activeIds, incidentIds, elementName)}
+      </div>
+    </div>
   );
 }

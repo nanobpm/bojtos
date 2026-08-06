@@ -190,6 +190,15 @@ export interface Snapshot {
   signalSubscriptions: SignalSubscriptionDto[];
   elementStats: ElementStatDto[];
   takenSequenceFlows: SequenceFlowDto[];
+  /**
+   * Evaluated DMN decisions.
+   *
+   * **Reserved.** `BojtosSession.deploy` takes a BPMN resource only, so there is
+   * currently no way to deploy a decision and nothing can populate this — treat
+   * a consumer that renders it as writing for a future engine, not reading live
+   * data. Kept in the contract so the shape doesn't change when deployment of
+   * decision resources lands.
+   */
   decisionInstances: DecisionInstanceDto[];
   activeElementIds: string[];
   incidentElementIds: string[];

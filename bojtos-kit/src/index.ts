@@ -11,6 +11,8 @@ export {
 export {
   dispatchWorkers,
   dispatchRound,
+  settleReason,
+  unhandledJobTypes,
   JobFailure,
   type JobHandler,
   type JobResult,
@@ -18,6 +20,7 @@ export {
   type DispatchOptions,
   type DispatchResult,
   type RoundResult,
+  type SettleReason,
 } from "./worker.js";
 // Every type reachable from `Snapshot` is exported: a consumer that can read
 // `snapshot.userTasks` must also be able to name `UserTaskDto` to write a
