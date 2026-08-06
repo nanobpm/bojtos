@@ -13,6 +13,7 @@ import {
   type WasmEvent,
   type WasmSource,
 } from "@nanobpm/bojtos-kit";
+import { bpmnKey } from "./runState.js";
 
 /** Lifecycle of the in-browser engine load. */
 export type BojtosPhase = "loading" | "ready" | "error";
@@ -229,8 +230,9 @@ export function useBojtos({
   wasmRef.current = wasm;
 
   // An array prop has a fresh identity every render, which would re-create the
-  // engine on each one. Key the deploy effect on the content instead.
-  const bpmnKey = Array.isArray(bpmn) ? bpmn.join(" ") : bpmn;
+  // engine on each one. Key the deploy effect on the content instead — see
+  // `bpmnKey` for why this is a boundary-preserving serialization, not a join.
+  const deployKey = bpmnKey(bpmn);
   const bpmnRef = useRef(bpmn);
   bpmnRef.current = bpmn;
 
@@ -260,7 +262,7 @@ export function useBojtos({
       setError(null);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bpmnKey],
+    [deployKey],
   );
 
   useEffect(() => {

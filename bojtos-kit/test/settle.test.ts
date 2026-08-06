@@ -101,6 +101,21 @@ test("a pending timer reports 'timers' rather than looking finished", async () =
   session.free();
 });
 
+test("advanceTimers null is treated as off, not a crash", async () => {
+  // `typeof null === "object"`, so a JS caller passing `null` through `any`
+  // used to read `.maxTotalMs` off it and throw. It must behave as "off".
+  const session = await start(TIMER_BPMN, "waits");
+  const res = await dispatchWorkers(
+    session,
+    { after: () => ({ ran: true }) },
+    { advanceTimers: null as unknown as boolean },
+  );
+  assert.equal(res.reason, "timers");
+  assert.equal(res.snapshot.completedInstances, 0);
+  assert.equal(res.advancedMs, 0);
+  session.free();
+});
+
 test("advanceTimers drives the clock and finishes the process", async () => {
   const session = await start(TIMER_BPMN, "waits");
   const res = await dispatchWorkers(

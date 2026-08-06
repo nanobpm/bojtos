@@ -9,7 +9,7 @@
 // jsdom and is worth a follow-up.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { describeRunState, markerKey } from "../dist/runState.js";
+import { describeRunState, markerKey, bpmnKey } from "../dist/runState.js";
 
 test("markerKey is stable across fresh arrays with the same ids", () => {
   // The bug this guards: `snapshot?.activeElementIds ?? []` builds a new array
@@ -21,6 +21,19 @@ test("markerKey is stable across fresh arrays with the same ids", () => {
   // Order is significant — the engine's ordering is stable, and treating a
   // reorder as "no change" would be a silent lie.
   assert.notEqual(markerKey(["a", "b"], []), markerKey(["b", "a"], []));
+});
+
+test("bpmnKey is stable across fresh arrays but distinguishes real changes", () => {
+  // Stable identity: a fresh array with the same content keys the same, so the
+  // deploy effect doesn't re-create the engine every render.
+  assert.equal(bpmnKey(["<a/>", "<b/>"]), bpmnKey(["<a/>", "<b/>"]));
+  assert.equal(bpmnKey("<a/>"), bpmnKey("<a/>"));
+  // A real content change must change the key.
+  assert.notEqual(bpmnKey(["<a/>"]), bpmnKey(["<b/>"]));
+  // Boundary-preserving: these collide under `join(" ")` ("<a/> <b/>" both
+  // ways) but must not collide here, or a real BPMN change would be missed.
+  assert.notEqual(bpmnKey(["<a/> ", "<b/>"]), bpmnKey(["<a/>", " <b/>"]));
+  assert.notEqual(bpmnKey(["<a/>", "<b/>"]), bpmnKey(["<a/> <b/>"]));
 });
 
 test("describeRunState puts the run into words for a screen reader", () => {

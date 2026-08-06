@@ -13,6 +13,17 @@ export function markerKey(activeIds: string[], incidentIds: string[]): string {
 }
 
 /**
+ * Content key for the `bpmn` prop, so a fresh array identity each render doesn't
+ * re-create the engine but a real content change still does. Uses a
+ * boundary-preserving serialization (not `join`): joining on a delimiter lets
+ * two different resource arrays collapse to one key when a resource borders or
+ * contains the delimiter, which would silently miss a real BPMN change.
+ */
+export function bpmnKey(bpmn: string | string[]): string {
+  return JSON.stringify(bpmn);
+}
+
+/**
  * A one-line description of run state, for the diagram's live region. The token
  * and incident highlights are purely visual; this is the same information as
  * text.

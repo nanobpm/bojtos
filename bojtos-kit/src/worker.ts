@@ -332,12 +332,14 @@ export async function dispatchWorkers(
   opts: DispatchOptions = {},
 ): Promise<DispatchResult> {
   const maxRounds = opts.maxRounds ?? 1000;
+  // `typeof null === "object"`, so guard against a JS caller passing `null`
+  // (via `any`) — otherwise reading `.maxTotalMs` off it throws.
+  const advanceTimers = opts.advanceTimers;
   const timeBudgetMs =
-    typeof opts.advanceTimers === "object"
-      ? opts.advanceTimers.maxTotalMs
+    advanceTimers != null && typeof advanceTimers === "object"
+      ? advanceTimers.maxTotalMs
       : Infinity;
-  const mayAdvance =
-    opts.advanceTimers !== undefined && opts.advanceTimers !== false;
+  const mayAdvance = advanceTimers != null && advanceTimers !== false;
 
   let handled = 0;
   let rounds = 0;
