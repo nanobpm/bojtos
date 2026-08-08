@@ -22,8 +22,10 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 // Keep this list in step with scripts/release.mjs — the packages that carry the
-// shared release version. The root manifest is versioned too (it is `private`,
-// never published, but kept in sync so the repo advertises the current train).
+// shared release version. The root manifest is bumped too, only so every
+// manifest agrees on the version within the release run (it is `private`, never
+// published, and — since nothing is committed back to `main` — the bump is
+// ephemeral: the repo tree and the release tag keep the pre-release version).
 const MANIFESTS = ["package.json", "bojtos-kit/package.json", "bojtos-react/package.json"];
 
 // Internal packages whose cross-dependency pins must track the release version,
