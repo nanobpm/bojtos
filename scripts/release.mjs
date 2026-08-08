@@ -158,6 +158,21 @@ function main() {
       `${opts.tag ? ` [dist-tag: ${opts.tag}]` : ""}\n`,
   );
 
+  // OIDC preflight diagnostic (CI only): npm trusted publishing engages when
+  // (a) the GitHub OIDC endpoint env is present and (b) no `_authToken` is
+  // configured. A leaked *empty* `npm_config_*_authtoken` (e.g. from invoking
+  // this via `npx`) silently disables OIDC → anonymous publish → masked 404.
+  if (process.env.CI) {
+    const oidc = Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+    const leakedAuth = Object.keys(process.env)
+      .filter((k) => /npm_config_.*_authtoken/i.test(k))
+      .join(", ");
+    console.log(
+      `  [oidc-preflight] id-token endpoint: ${oidc ? "present" : "MISSING"}; ` +
+        `leaked auth env: ${leakedAuth || "none"}`,
+    );
+  }
+
   const published = [];
   const skipped = [];
   for (const p of PACKAGES) {
