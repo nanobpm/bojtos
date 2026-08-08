@@ -2,7 +2,7 @@
   "name": "@nanobpm/bojtos",
   "version": "0.4.0",
   "private": true,
-  "description": "Bojtos \u2014 the in-browser BPMN demo framework (ADR 0043). Monorepo for @nanobpm/bojtos-kit (framework-agnostic scenario runner over @nanobpm/engine-wasm) and @nanobpm/bojtos-react (the useBojtos hook + live diagram).",
+  "description": "Bojtos — the in-browser BPMN demo framework (ADR 0043). Monorepo for @nanobpm/bojtos-kit (framework-agnostic scenario runner over @nanobpm/engine-wasm) and @nanobpm/bojtos-react (the useBojtos hook + live diagram).",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {
@@ -21,5 +21,9 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "@semantic-release/exec": "^7.1.0",
+    "semantic-release": "^24.2.9"
   }
 }

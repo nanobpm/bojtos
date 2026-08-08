@@ -1,23 +1,40 @@
 name: release
 
-# Triggered by tags of the form `v0.4.0`. Builds & publishes the two Bojtos
-# framework packages, in dependency order, to the npm registry:
+# Runs on every push to `main` and lets semantic-release decide, from the
+# conventional-commit history, whether a release is due and what the next
+# version is. When one is, it:
 #
-#   @nanobpm/bojtos-kit  →  @nanobpm/bojtos-react
+#   1. bumps both package manifests + the internal cross-dep pin, in lockstep
+#      (scripts/set-version.mjs), then
+#   2. publishes the two Bojtos packages in dependency order
+#      (scripts/release.mjs — idempotent, so a re-run is safe):
+#
+#        @nanobpm/bojtos-kit  ->  @nanobpm/bojtos-react
+#
+#      and finally
+#   3. cuts the git tag `v<version>` + a GitHub Release with the notes.
 #
 # (@nanobpm/engine-wasm is published separately from the nano-bpm repo and is
 # consumed here as an ordinary npm dependency.)
 #
-# Authentication is npm OIDC trusted publishing — NO NPM_TOKEN. Each package
-# must have a Trusted Publisher configured on npmjs.com pointing at this repo +
-# this workflow file (see docs/releasing.md). Because this repository is public,
-# npm provenance is enabled (NPM_CONFIG_PROVENANCE=true).
+# Authentication for the npm publish is OIDC trusted publishing - NO NPM_TOKEN.
+# Each package must have a Trusted Publisher configured on npmjs.com pointing at
+# this repo + this workflow file (see docs/releasing.md). Because this repository
+# is public, npm provenance is enabled (NPM_CONFIG_PROVENANCE=true). The tag and
+# GitHub Release are created by semantic-release via the default GITHUB_TOKEN; we
+# deliberately do NOT commit the version bump back to `main` (no
+# @semantic-release/git), so there is no protected-branch friction and no release
+# commit loop.
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
   workflow_dispatch: {}
+
+# Avoid two overlapping releases racing to publish/tag the same version.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -27,9 +44,20 @@ jobs:
       # id-token: write lets npm exchange the GitHub OIDC token for a
       # short-lived publish token (trusted publishing); it also signs provenance.
       id-token: write
-      contents: read
+      # contents: write lets semantic-release push the `v<version>` tag and
+      # create the GitHub Release.
+      contents: write
+      # issues/pull-requests: write lets @semantic-release/github comment the
+      # released version back on the PRs/issues it shipped.
+      issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          # semantic-release needs the full history + tags to determine the last
+          # release and compute the next version.
+          fetch-depth: 0
+          persist-credentials: true
 
       - uses: actions/setup-node@v5
         with:
@@ -48,20 +76,10 @@ jobs:
         run: |
           npm run build
           npm run test:ci --workspace @nanobpm/bojtos-kit
+          npm run test:ci --workspace @nanobpm/bojtos-react
 
-      - name: Verify tag matches package versions
-        run: |
-          tag_version="${GITHUB_REF_NAME#v}"
-          for dir in bojtos-kit bojtos-react; do
-            pkg_version=$(node -p "require('./$dir/package.json').version")
-            if [[ "$pkg_version" != "$tag_version" ]]; then
-              echo "::error::tag $tag_version does not match $dir version $pkg_version"
-              exit 1
-            fi
-          done
-          echo "releasing Bojtos packages $tag_version"
-
-      - name: Publish (dependency order, OIDC + provenance)
+      - name: Release (semantic-release -> set-version + publish + tag)
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
-        run: node scripts/release.mjs
+        run: npx semantic-release
