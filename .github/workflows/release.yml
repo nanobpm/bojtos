@@ -82,4 +82,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
-        run: npx semantic-release
+        # Invoke the semantic-release binary DIRECTLY, not via `npx`. `npx`
+        # (= `npm exec`) exports the resolved npm config into the child
+        # environment as `npm_config_*` vars — including an *empty*
+        # `npm_config_//registry.npmjs.org/:_authToken` derived from the
+        # setup-node .npmrc placeholder. That empty auth env leaks down into the
+        # nested `npm publish` (scripts/release.mjs), where npm treats "auth is
+        # configured (but empty)" as a reason to SKIP OIDC trusted publishing and
+        # publish anonymously — which the registry rejects as a masked 404.
+        # Running the bin directly keeps the release env clean so the nested
+        # `npm publish` engages OIDC. (Provenance is auth-independent, which is
+        # why it signed successfully even while the publish 404'd.)
+        run: ./node_modules/.bin/semantic-release
