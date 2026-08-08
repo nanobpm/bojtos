@@ -163,12 +163,20 @@ function main() {
   // configured. A leaked *empty* `npm_config_*_authtoken` (e.g. from invoking
   // this via `npx`) silently disables OIDC → anonymous publish → masked 404.
   if (process.env.CI) {
-    const oidc = Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+    // Minting a GitHub OIDC token needs BOTH the request URL and the request
+    // token; checking only the URL can read "present" while the token is absent.
+    const oidc =
+      Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL) &&
+      Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN);
+    // Report each leaked auth var as set-vs-empty (never the value): an *empty*
+    // one is the exact condition that suppresses OIDC, so distinguishing them
+    // makes the diagnostic actionable without exposing any secret.
     const leakedAuth = Object.keys(process.env)
       .filter((k) => /npm_config_.*_authtoken/i.test(k))
+      .map((k) => `${k}=${process.env[k] ? "<set>" : "<empty>"}`)
       .join(", ");
     console.log(
-      `  [oidc-preflight] id-token endpoint: ${oidc ? "present" : "MISSING"}; ` +
+      `  [oidc-preflight] id-token env: ${oidc ? "present" : "MISSING"}; ` +
         `leaked auth env: ${leakedAuth || "none"}`,
     );
   }
