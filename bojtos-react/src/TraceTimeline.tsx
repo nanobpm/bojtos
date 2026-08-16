@@ -58,13 +58,20 @@ export interface TraceTimelineProps {
   className?: string;
 }
 
-function safeStringify(value: unknown): string {
+function safeStringify(value: unknown, space?: number): string {
   // Preserve `undefined`/`null` explicitly rather than folding `undefined` into
   // `{}` — a handler/tool that actually returned `undefined` should show that,
   // not an empty object it never produced.
   if (value === undefined) return "undefined";
   try {
-    return JSON.stringify(value);
+    // `JSON.stringify` throws on BigInt and circular structures; a replacer
+    // renders BigInt losslessly as its decimal string so trace payloads that
+    // carry engine-native BigInts don't crash serialization.
+    return JSON.stringify(
+      value,
+      (_key, val) => (typeof val === "bigint" ? val.toString() : val),
+      space,
+    );
   } catch {
     return "[unserializable value]";
   }
@@ -205,7 +212,7 @@ export function TraceTimeline({
       elementStats,
       incidents,
     };
-    const text = JSON.stringify(payload, null, 2);
+    const text = safeStringify(payload, 2);
     if (navigator.clipboard?.writeText) {
       navigator.clipboard
         .writeText(text)
