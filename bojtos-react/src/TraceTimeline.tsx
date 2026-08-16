@@ -59,9 +59,9 @@ export interface TraceTimelineProps {
 }
 
 function safeStringify(value: unknown, space?: number): string {
-  // Preserve `undefined`/`null` explicitly rather than folding `undefined` into
-  // `{}` — a handler/tool that actually returned `undefined` should show that,
-  // not an empty object it never produced.
+  // `JSON.stringify(undefined)` returns the JS value `undefined` (not a string),
+  // which would render as nothing. Emit the literal "undefined" so a handler/tool
+  // that actually returned `undefined` is shown explicitly rather than vanishing.
   if (value === undefined) return "undefined";
   try {
     // `JSON.stringify` throws on BigInt and circular structures; a replacer
@@ -155,14 +155,14 @@ function TurnCard({
       {reply && <blockquote className="timeline-reply">{reply.text}</blockquote>}
 
       {decisions.map((d) => (
-        <div key={d.id} className="timeline-note">
+        <div key={d.key ?? d.id} className="timeline-note">
           {d.text}
         </div>
       ))}
 
       {activations.map((a) => (
         <ToolStep
-          key={a.id}
+          key={a.key ?? a.id}
           activation={a}
           result={results.find((r) => r.elementId === a.elementId)}
           labelFor={labelFor}
@@ -170,7 +170,7 @@ function TurnCard({
       ))}
 
       {loose.map((e) => (
-        <div key={e.id} className={`log-line log-${e.kind}`}>
+        <div key={e.key ?? e.id} className={`log-line log-${e.kind}`}>
           {e.pending ? "⏳ " : ""}
           {e.text}
         </div>
@@ -251,12 +251,12 @@ export function TraceTimeline({
           items.map((item) =>
             isTraceTurnGroup(item) ? (
               <TurnCard
-                key={`turn-${item.turn}-${item.rows[0].id}`}
+                key={`turn-${item.turn}-${item.rows[0].key ?? item.rows[0].id}`}
                 group={item}
                 labelFor={labelFor}
               />
             ) : (
-              <div key={item.id} className={`log-line log-${item.kind}`}>
+              <div key={item.key ?? item.id} className={`log-line log-${item.kind}`}>
                 {item.pending ? "⏳ " : ""}
                 {item.text}
               </div>
