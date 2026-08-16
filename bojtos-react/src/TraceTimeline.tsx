@@ -213,7 +213,7 @@ export function TraceTimeline({
       incidents,
     };
     const text = safeStringify(payload, 2);
-    if (navigator.clipboard?.writeText) {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
       navigator.clipboard
         .writeText(text)
         .then(() => {
