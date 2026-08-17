@@ -141,7 +141,7 @@ test("foldEngineEvents keeps only milestones and drops lifecycle noise", () => {
 test("foldEngineEvents renders readable text and carries the element id", () => {
   const rows = foldEngineEvents(ENGINE_EVENTS);
   assert.equal(rows[0].text, "Process one started");
-  assert.equal(rows[1].text, "Job work activated on work");
+  assert.equal(rows[1].text, "Job work created on work");
   assert.equal(rows[1].elementId, "work");
   assert.equal(rows[2].text, "Job work completed");
   assert.equal(rows[3].text, "Process completed");

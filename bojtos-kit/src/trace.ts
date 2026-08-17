@@ -171,7 +171,7 @@ const ENGINE_EVENT_RULES: Record<string, EngineEventRule> = {
   JobCreated: {
     kind: "tool",
     text: (ev) =>
-      `Job ${str(ev, "job_type") ?? ""} activated`.trim() +
+      `Job ${str(ev, "job_type") ?? ""} created`.trim() +
       (elementOf(ev) ? ` on ${elementOf(ev)}` : ""),
   },
   JobCompleted: {
