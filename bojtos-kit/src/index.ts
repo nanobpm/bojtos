@@ -22,6 +22,23 @@ export {
   type RoundResult,
   type SettleReason,
 } from "./worker.js";
+// The shared trace model + both adapters (engine-event fold and handler-emitted
+// `TraceEntry`) that retired the two forked `TraceTimeline` copies (#9). Pure and
+// React-free — the presentational component lives in @nanobpm/bojtos-react.
+export {
+  buildTraceItems,
+  isTraceTurnGroup,
+  foldEngineEvents,
+  traceEntriesToRows,
+} from "./trace.js";
+export type {
+  TraceRowKind,
+  TraceEntry,
+  TraceRow,
+  TraceTurnGroup,
+  TraceItem,
+  TraceAdapter,
+} from "./trace.js";
 // Every type reachable from `Snapshot` is exported: a consumer that can read
 // `snapshot.userTasks` must also be able to name `UserTaskDto` to write a
 // helper for it. Keep this list exhaustive when adding to `types.ts`.

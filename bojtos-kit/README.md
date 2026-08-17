@@ -27,6 +27,27 @@ Every command returns the post-run `Snapshot`: `activeElementIds` /
 For React, use [`@nanobpm/bojtos-react`](../bojtos-react), which owns the session
 lifecycle and reactive state on top of this kit.
 
+## Trace model
+
+The kit also holds the framework-agnostic **trace model** the shared
+`<TraceTimeline>` (in `@nanobpm/bojtos-react`) renders — one normalized
+row/turn-group model plus the two adapters that map a source into it, so the two
+formerly forked timelines share one fold instead of drifting apart:
+
+- **`foldEngineEvents(events)`** — the engine-event fold: a `WasmEvent[]` (from
+  `session.events()` / `useBojtos().events`) → normalized `TraceRow[]`, keeping the
+  run's milestones and dropping low-signal lifecycle noise. The non-agentic /
+  test-view case.
+- **`traceEntriesToRows(entries)`** — the handler-emitted adapter: agent/tool/turn
+  `TraceEntry` lines (with the additive `turn` grouping field) → `TraceRow[]`. The
+  agentic web-demo case.
+- **`buildTraceItems(rows)`** — folds consecutive same-`turn` rows into
+  `TraceTurnGroup`s; rows with no `turn` stay flat. `isTraceTurnGroup` narrows an
+  item. This is the grouping the view consumes.
+
+It is pure and React-free (no React import in the kit), keeping the presentational
+layer thin.
+
 ## Build
 
 `dist/` (the tsc-emitted JS + `.d.ts`) is what ships, built by `prepack` on

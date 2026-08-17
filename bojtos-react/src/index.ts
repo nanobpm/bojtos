@@ -20,6 +20,9 @@ export {
   BpmnRuntimeView,
   type BpmnRuntimeViewProps,
 } from "./BpmnRuntimeView.js";
+// The shared activity log (#9). Trace-only imports tree-shake bpmn-js out —
+// TraceTimeline imports only the kit + React, never BpmnRuntimeView.
+export { TraceTimeline, type TraceTimelineProps } from "./TraceTimeline.js";
 export {
   describeRunState,
   markerKey,
@@ -31,6 +34,10 @@ export {
   JobFailure,
   settleReason,
   unhandledJobTypes,
+  buildTraceItems,
+  isTraceTurnGroup,
+  foldEngineEvents,
+  traceEntriesToRows,
   type JobHandler,
   type JobResult,
   type AgentHandler,
@@ -58,4 +65,10 @@ export type {
   AgentActivation,
   AgentResult,
   WasmEvent,
+  TraceRowKind,
+  TraceEntry,
+  TraceRow,
+  TraceTurnGroup,
+  TraceItem,
+  TraceAdapter,
 } from "@nanobpm/bojtos-kit";

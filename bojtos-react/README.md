@@ -10,6 +10,15 @@ React binding for the **Bojtos** in-browser BPMN demo framework
 - **`<BpmnRuntimeView xml activeIds incidentIds />`** — the live diagram: it
   imports the XML once and updates token (`nano-active`) / incident
   (`nano-incident`) markers in place, so zoom/scroll survive stepping.
+- **`<TraceTimeline rows />`** — the shared activity log: it renders the
+  framework-agnostic trace model from [`@nanobpm/bojtos-kit`](../bojtos-kit) as a
+  turn-by-turn story (consecutive same-`turn` rows fold into one card; rows with
+  no `turn` render as plain lines). Feed it a kit adapter —
+  `foldEngineEvents(run.events)` for a plain engine run, or
+  `traceEntriesToRows(entries)` for handler-emitted agent/tool/turn entries. It
+  imports **only** the kit and React, so a trace-only import tree-shakes `bpmn-js`
+  out (the package is `sideEffects: false`); a test walks the built module graph
+  to pin that.
 
 ## Install
 
@@ -41,6 +50,26 @@ function Demo({ bpmn }: { bpmn: string }) {
   );
 }
 ```
+
+## Trace timeline
+
+```tsx
+import { useBojtos, TraceTimeline, foldEngineEvents } from "@nanobpm/bojtos-react";
+
+function RunLog({ bpmn }: { bpmn: string }) {
+  const run = useBojtos({ bpmn });
+  // Engine-event fold — the non-agentic / test-view case.
+  return <TraceTimeline rows={foldEngineEvents(run.events)} />;
+}
+```
+
+For an agentic run, emit `TraceEntry` lines from your handlers (with the additive
+`turn` / `elementId` / `args` / `result` fields) and pass
+`traceEntriesToRows(entries)` instead — same component, turn-grouped card view.
+`TraceTimeline` keeps the class names (`timeline`, `timeline-turn`,
+`log-line log-<kind>`, …) the demo stylesheet already targets, so your CSS applies
+unchanged. It never imports `bpmn-js`, so importing it alone won't pull the
+diagram bundle in.
 
 ## Peer requirements
 
