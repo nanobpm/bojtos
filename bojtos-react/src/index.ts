@@ -6,8 +6,10 @@
 
 export {
   useBojtos,
+  useReadModel,
   type UseBojtosOptions,
   type BojtosControls,
+  type ReadModelBojtosControls,
   type BojtosPhase,
 } from "./useBojtos.js";
 export { Bojtos, type BojtosProps, type TraceEvent } from "./Bojtos.js";
@@ -29,6 +31,8 @@ export {
   bpmnKey,
   resourceList,
   capEvents,
+  resolveVariant,
+  selectReadModel,
 } from "./runState.js";
 export {
   JobFailure,
@@ -48,6 +52,8 @@ export {
 } from "@nanobpm/bojtos-kit";
 export type {
   BojtosSession,
+  ReadModelBojtosSession,
+  EngineVariant,
   Snapshot,
   InstanceDto,
   JobDto,
@@ -71,4 +77,14 @@ export type {
   TraceTurnGroup,
   TraceItem,
   TraceAdapter,
+  UserTaskSearchQueryResult,
+  UserTaskResult,
+  ProcessInstanceSearchQueryResult,
+  ProcessInstanceResult,
+  VariableSearchQueryResult,
+  VariableResult,
+  FormResult,
+  ResourceResult,
+  SearchQueryResponse,
+  SearchQueryPageResponse,
 } from "@nanobpm/bojtos-kit";

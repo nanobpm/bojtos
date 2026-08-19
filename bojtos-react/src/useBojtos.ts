@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ActivateInstruction,
   type AgentResult,
@@ -7,13 +7,26 @@ import {
   type DispatchOptions,
   dispatchRound,
   dispatchWorkers,
+  type EngineVariant,
+  type FormResult,
   type JobHandler,
+  type ProcessInstanceSearchQueryResult,
+  type ReadModelBojtosSession,
+  type ResourceResult,
   type RoundResult,
   type Snapshot,
+  type UserTaskSearchQueryResult,
+  type VariableSearchQueryResult,
   type WasmEvent,
   type WasmSource,
 } from "@nanobpm/bojtos-kit";
-import { bpmnKey, capEvents, resourceList } from "./runState.js";
+import {
+  bpmnKey,
+  capEvents,
+  resolveVariant,
+  resourceList,
+  selectReadModel,
+} from "./runState.js";
 
 /** Lifecycle of the in-browser engine load. */
 export type BojtosPhase = "loading" | "ready" | "error";
@@ -46,6 +59,22 @@ export interface UseBojtosOptions {
    * whole log, which stays the default so existing consumers are unaffected.
    */
   maxEvents?: number;
+  /**
+   * Which engine variant to load, defaulting to `"lean"` — existing consumers
+   * are unaffected. Pass `"readmodel"` to also thread the gateway's
+   * Camunda-parity REST read channel through the hook: the returned controls
+   * then widen to {@link ReadModelBojtosControls}, exposing `searchUserTasks` /
+   * `searchProcessInstances` / `searchVariables` / `getFormByKey` /
+   * `getResourceByKey` plus the `readModelVersion` reactivity signal.
+   *
+   * Init-time only, like `wasm`: the variant is read when the session is first
+   * created for a given diagram, so changing it later has no effect until the
+   * next `bpmn` change re-creates the engine.
+   *
+   * The read-model binary is heavier and only code-splits in when this is
+   * `"readmodel"` (ADR 0043 §3); a lean hook never downloads it.
+   */
+  variant?: EngineVariant;
 }
 
 export interface BojtosControls {
@@ -178,6 +207,72 @@ export interface BojtosControls {
 }
 
 /**
+ * The {@link BojtosControls} of a `readmodel`-variant hook: the full command
+ * surface **plus** reactive access to the gateway's Camunda-parity REST read
+ * channel. You get one by passing `variant: "readmodel"` to {@link useBojtos},
+ * which widens the return type from `BojtosControls` to this.
+ *
+ * ## Reactivity model
+ *
+ * The read queries are **pull** projections of the read model, not part of the
+ * command→`snapshot` push loop: `searchUserTasks` et al. answer "what does the
+ * read model say *right now*", and there is no single obvious cadence at which
+ * to re-run them (a consumer may care about tasks, another about variables, each
+ * with its own filter). So rather than eagerly re-running every query after
+ * every command and stuffing five results into state, the hook exposes:
+ *
+ * - the five read methods as **imperative pulls** — call one whenever you want a
+ *   fresh answer; each returns `null` before the engine is ready rather than
+ *   throwing, and
+ * - {@link readModelVersion}, a counter bumped after **every** command / worker
+ *   round (i.e. whenever the read model may have moved), so a consumer can make
+ *   a query reactive by keying a `useMemo`/`useEffect` on it — or just let
+ *   {@link useReadModel} do exactly that.
+ *
+ * This keeps the read channel opt-in and filter-agnostic while still landing its
+ * results in React state on the consumer's terms.
+ */
+export interface ReadModelBojtosControls extends BojtosControls {
+  /**
+   * Search user tasks through the read model (mirrors `POST
+   * /user-tasks/search`). Returns `null` until the engine is ready. Honours an
+   * optional `{ state? }` filter, e.g. `searchUserTasks('{"state":"CREATED"}')`.
+   */
+  searchUserTasks(filterJson?: string): UserTaskSearchQueryResult | null;
+  /**
+   * Search process instances through the read model (mirrors `POST
+   * /process-instances/search`). Returns `null` until the engine is ready.
+   */
+  searchProcessInstances(
+    filterJson?: string,
+  ): ProcessInstanceSearchQueryResult | null;
+  /**
+   * Search variables through the read model (mirrors `POST
+   * /variables/search`). Returns `null` until the engine is ready.
+   */
+  searchVariables(filterJson?: string): VariableSearchQueryResult | null;
+  /**
+   * The latest deployed form for `formKey` (mirrors `GET /forms/{formKey}`), or
+   * `null` if none exists — also `null` until the engine is ready.
+   */
+  getFormByKey(formKey: string): FormResult | null;
+  /**
+   * The generic resource for `resourceKey` (mirrors `GET
+   * /resources/{resourceKey}`), or `null` if none exists — also `null` until the
+   * engine is ready.
+   */
+  getResourceByKey(resourceKey: string): ResourceResult | null;
+  /**
+   * A monotonically increasing counter bumped after every command / worker round
+   * (and on deploy / reset). It is the reactivity signal for the pull read
+   * queries: key a `useMemo`/`useEffect` on it to re-run a query when the read
+   * model may have changed. {@link useReadModel} is the ready-made selector over
+   * it.
+   */
+  readModelVersion: number;
+}
+
+/**
  * Session members the hook deliberately does not re-export: the deployment
  * lifecycle it owns itself, and the low-level activate primitive the dispatch
  * loop owns.
@@ -201,6 +296,20 @@ type AssertNever<T extends never> = T;
 type _EverySessionCommandIsBound = AssertNever<UnboundCommands>;
 
 /**
+ * The same guard for the widened `readmodel` surface: every method of a
+ * {@link ReadModelBojtosSession} — the lean commands **and** the five read
+ * queries — must be bound on {@link ReadModelBojtosControls}, or a `readmodel`
+ * hook would silently drop part of the read channel (the exact failure mode #1
+ * described, now covering the read methods too). Adding a read query to the
+ * session without binding it here fails the build with its name.
+ */
+type UnboundReadModelCommands = Exclude<
+  keyof ReadModelBojtosSession,
+  NotReExported | keyof ReadModelBojtosControls
+>;
+type _EveryReadModelCommandIsBound = AssertNever<UnboundReadModelCommands>;
+
+/**
  * React binding over a headless {@link BojtosSession}: owns the engine's
  * lifecycle and the reactive `snapshot` / `events` / `processIds` state, and
  * exposes the engine commands. The consuming component owns its own form state
@@ -210,18 +319,51 @@ type _EverySessionCommandIsBound = AssertNever<UnboundCommands>;
  * This is the reactive half of the Bojtos public API (ADR 0043 §2); the console
  * test-run panel is its first consumer (§8 step 2 — dogfooding is the acceptance
  * test).
+ *
+ * With `variant: "readmodel"` the return type widens to
+ * {@link ReadModelBojtosControls}, adding the read channel + `readModelVersion`;
+ * the default `"lean"` variant returns the plain {@link BojtosControls} and never
+ * downloads the heavier read-model binary.
  */
+export function useBojtos(
+  options: UseBojtosOptions & { variant: "readmodel" },
+): ReadModelBojtosControls;
+export function useBojtos(
+  options: UseBojtosOptions & { variant?: "lean" },
+): BojtosControls;
+export function useBojtos(
+  options: UseBojtosOptions,
+): BojtosControls | ReadModelBojtosControls;
 export function useBojtos({
   bpmn,
   wasm,
   maxEvents,
-}: UseBojtosOptions): BojtosControls {
+  variant,
+}: UseBojtosOptions): ReadModelBojtosControls {
   const sessionRef = useRef<BojtosSession | null>(null);
+  // The same session, narrowed to its read channel, but only when we actually
+  // asked for the `readmodel` variant. Kept as its own ref (rather than casting
+  // `sessionRef`) so the read methods reach the query surface without a cast — a
+  // lean session simply leaves this null and every read pull returns null.
+  const readModelRef = useRef<ReadModelBojtosSession | null>(null);
   const [phase, setPhase] = useState<BojtosPhase>("loading");
   const [error, setError] = useState<string | null>(null);
   const [processIds, setProcessIds] = useState<string[]>([]);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [events, setEvents] = useState<WasmEvent[]>([]);
+  // Bumped whenever the read model may have moved (any command / round / deploy /
+  // reset) so pull read queries can be made reactive by keying on it.
+  const [readModelVersion, setReadModelVersion] = useState(0);
+  const bumpReadModel = useCallback(
+    () => setReadModelVersion((v) => v + 1),
+    [],
+  );
+
+  // The variant is an init-time concern like `wasm` (read when a session is
+  // first created for a diagram), so keep it in a ref rather than the deploy
+  // effect's deps.
+  const variantRef = useRef(variant);
+  variantRef.current = variant;
 
   // The wasm source is an init-time concern (the first `ensureWasm` wins), so
   // keep it in a ref rather than the mount effect's deps — a fresh URL/bytes
@@ -254,6 +396,9 @@ export function useBojtos({
       setSnapshot(null);
       setEvents([]);
       setError(null);
+      // The read model was just wiped and re-seeded by the redeploy, so any
+      // reactive read query must re-run.
+      bumpReadModel();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [deployKey],
@@ -270,7 +415,15 @@ export function useBojtos({
     setSnapshot(null);
     setEvents([]);
     setError(null);
-    createBojtosSession({ wasm: wasmRef.current })
+    // Resolve the session with the requested variant. The `readmodel` branch
+    // keeps the narrowed `ReadModelBojtosSession` so the read methods reach the
+    // query surface without a cast; the lean branch leaves `readModelRef` null.
+    const variant = resolveVariant(variantRef.current);
+    const pending =
+      variant === "readmodel"
+        ? createBojtosSession({ wasm: wasmRef.current, variant: "readmodel" })
+        : createBojtosSession({ wasm: wasmRef.current });
+    pending
       .then((session) => {
         if (cancelled) {
           session.free();
@@ -288,6 +441,8 @@ export function useBojtos({
           return;
         }
         sessionRef.current = session;
+        readModelRef.current =
+          variant === "readmodel" ? (session as ReadModelBojtosSession) : null;
         setPhase("ready");
       })
       .catch((e) => {
@@ -299,6 +454,7 @@ export function useBojtos({
       cancelled = true;
       sessionRef.current?.free();
       sessionRef.current = null;
+      readModelRef.current = null;
     };
   }, [deployInto]);
 
@@ -311,13 +467,15 @@ export function useBojtos({
         setSnapshot(snap);
         setEvents(readEvents(session));
         setError(null);
+        // A command may have moved the read model; signal reactive readers.
+        bumpReadModel();
         return snap;
       } catch (e) {
         setError(String(e));
         return null;
       }
     },
-    [],
+    [bumpReadModel, readEvents],
   );
 
   const createInstance = useCallback(
@@ -431,6 +589,7 @@ export function useBojtos({
         setSnapshot(settled);
         setEvents(readEvents(session));
         setError(null);
+        bumpReadModel();
         return settled;
       } catch (e) {
         if (sessionRef.current !== session) return null;
@@ -439,10 +598,11 @@ export function useBojtos({
         setSnapshot(session.snapshot());
         setEvents(readEvents(session));
         setError(String(e));
+        bumpReadModel();
         return null;
       }
     },
-    [],
+    [bumpReadModel, readEvents],
   );
 
   const stepWorkers = useCallback(
@@ -459,16 +619,18 @@ export function useBojtos({
         setSnapshot(round.snapshot);
         setEvents(readEvents(session));
         setError(null);
+        bumpReadModel();
         return round;
       } catch (e) {
         if (sessionRef.current !== session) return null;
         setSnapshot(session.snapshot());
         setEvents(readEvents(session));
         setError(String(e));
+        bumpReadModel();
         return null;
       }
     },
-    [],
+    [bumpReadModel, readEvents],
   );
 
   const reset = useCallback(() => {
@@ -484,6 +646,45 @@ export function useBojtos({
       setError(String(e));
     }
   }, [deployInto]);
+
+  // The read channel. Each pull returns null when there is no live read-model
+  // session (loading, or a lean-variant hook), via the shared `selectReadModel`
+  // guard, rather than throwing on a missing engine. They intentionally do not
+  // touch React state themselves — reactivity is opt-in through
+  // `readModelVersion` / `useReadModel` (see `ReadModelBojtosControls`).
+  const searchUserTasks = useCallback(
+    (filterJson?: string) =>
+      selectReadModel(readModelRef.current, (rm) =>
+        rm.searchUserTasks(filterJson),
+      ),
+    [],
+  );
+  const searchProcessInstances = useCallback(
+    (filterJson?: string) =>
+      selectReadModel(readModelRef.current, (rm) =>
+        rm.searchProcessInstances(filterJson),
+      ),
+    [],
+  );
+  const searchVariables = useCallback(
+    (filterJson?: string) =>
+      selectReadModel(readModelRef.current, (rm) =>
+        rm.searchVariables(filterJson),
+      ),
+    [],
+  );
+  const getFormByKey = useCallback(
+    (formKey: string) =>
+      selectReadModel(readModelRef.current, (rm) => rm.getFormByKey(formKey)),
+    [],
+  );
+  const getResourceByKey = useCallback(
+    (resourceKey: string) =>
+      selectReadModel(readModelRef.current, (rm) =>
+        rm.getResourceByKey(resourceKey),
+      ),
+    [],
+  );
 
   return {
     phase,
@@ -511,5 +712,51 @@ export function useBojtos({
     runWorkers,
     stepWorkers,
     reset,
+    searchUserTasks,
+    searchProcessInstances,
+    searchVariables,
+    getFormByKey,
+    getResourceByKey,
+    readModelVersion,
   };
+}
+
+/**
+ * Reactively project a value out of a `readmodel` hook's read channel, re-run
+ * whenever the read model may have moved.
+ *
+ * The read queries are pull projections (see {@link ReadModelBojtosControls}),
+ * so this is the ready-made "selector" that lands their result in React state on
+ * your terms: pass the `readmodel` {@link useBojtos} controls and a `select`
+ * that calls whichever read methods you care about (with whatever filters), and
+ * the memoized result re-computes each time `readModelVersion` bumps — i.e.
+ * after every command / worker round / deploy / reset — or the load `phase`
+ * flips. Before the engine is ready the read methods return `null`, so a
+ * selector must tolerate nulls.
+ *
+ * ```tsx
+ * const run = useBojtos({ bpmn, variant: "readmodel" });
+ * const openTasks = useReadModel(
+ *   run,
+ *   (rm) => rm.searchUserTasks('{"state":"CREATED"}')?.items ?? [],
+ * );
+ * ```
+ */
+export function useReadModel<T>(
+  controls: ReadModelBojtosControls,
+  select: (controls: ReadModelBojtosControls) => T,
+): T {
+  // Keep the latest selector and controls without making them memo dependencies:
+  // re-running is driven by the read model moving (`readModelVersion`) / readiness
+  // (`phase`), not by a fresh inline selector or a fresh `controls` object literal
+  // (`useBojtos` returns a new object each render, so depending on it directly would
+  // re-run the selector on *every* parent re-render).
+  const selectRef = useRef(select);
+  selectRef.current = select;
+  const controlsRef = useRef(controls);
+  controlsRef.current = controls;
+  return useMemo(
+    () => selectRef.current(controlsRef.current),
+    [controls.readModelVersion, controls.phase],
+  );
 }

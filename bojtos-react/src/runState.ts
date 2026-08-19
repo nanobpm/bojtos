@@ -8,6 +8,36 @@
  * decisions, and decisions are worth testing.
  */
 
+import type { EngineVariant } from "@nanobpm/bojtos-kit";
+
+/**
+ * The engine variant a hook run should use, defaulting to `"lean"` when the
+ * consumer didn't pick one. Keeping the default here (rather than a parameter
+ * default) makes the "no `variant` means lean, so existing consumers are
+ * unaffected" decision a single testable fact instead of an inline `?? "lean"`
+ * scattered through the hook.
+ */
+export function resolveVariant(
+  variant: EngineVariant | undefined,
+): EngineVariant {
+  return variant ?? "lean";
+}
+
+/**
+ * Pull a value out of the read-model channel, or `null` when there is no live
+ * read-model session (loading, a lean-variant hook, or between a teardown and
+ * the next engine). This is the one place the "no session → null, otherwise run
+ * the query" decision lives, shared by every reactive read method so a
+ * lean-variant call or a mid-load call is a quiet `null` rather than a throw on
+ * a missing engine.
+ */
+export function selectReadModel<C, T>(
+  channel: C | null,
+  select: (channel: C) => T,
+): T | null {
+  return channel === null ? null : select(channel);
+}
+
 /**
  * Stable key for a marker set, so unchanged ids don't re-paint the diagram.
  *
