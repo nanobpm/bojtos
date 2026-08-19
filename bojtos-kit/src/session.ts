@@ -453,11 +453,16 @@ class WasmReadModelSession
   extends WasmBojtosSession
   implements ReadModelBojtosSession
 {
-  // The base stores the engine typed as lean `TestEngine`; the read-model
-  // engine is a structural superset (same core methods + the 5 read methods),
-  // so this narrowing cast is sound. Kept as a getter to avoid a second field.
-  private get rm(): ReadModelEngine {
-    return this.engine as unknown as ReadModelEngine;
+  // The read-model engine is a structural superset of the lean `TestEngine`
+  // (identical command surface + the 5 read methods), so it satisfies the base
+  // constructor while we keep our own read-model-typed reference for the read
+  // channel — no casts, so a future divergence in the shared surface is a
+  // compile error rather than a runtime one.
+  private readonly rm: ReadModelEngine;
+
+  constructor(engine: ReadModelEngine) {
+    super(engine);
+    this.rm = engine;
   }
 
   searchUserTasks(filterJson = "{}"): UserTaskSearchQueryResult {
@@ -498,7 +503,9 @@ class WasmReadModelSession
  *
  * With `variant: "readmodel"` the returned session also exposes the gateway's
  * REST read channel (typed {@link ReadModelBojtosSession}); the default `"lean"`
- * variant is state-only and never downloads the heavier read-model binary.
+ * variant is state-only and never downloads the heavier read-model binary. A
+ * statically-`"readmodel"` variant widens the return type; a value only known as
+ * the `EngineVariant` union resolves to the base {@link BojtosSession}.
  */
 export async function createBojtosSession(opts?: {
   wasm?: WasmSource;
@@ -508,13 +515,17 @@ export async function createBojtosSession(opts: {
   wasm?: WasmSource;
   variant: "readmodel";
 }): Promise<ReadModelBojtosSession>;
+export async function createBojtosSession(opts: {
+  wasm?: WasmSource;
+  variant: EngineVariant;
+}): Promise<BojtosSession>;
 export async function createBojtosSession(opts?: {
   wasm?: WasmSource;
   variant?: EngineVariant;
 }): Promise<BojtosSession> {
   if (opts?.variant === "readmodel") {
     const mod = await ensureReadModelWasm(opts.wasm);
-    return new WasmReadModelSession(new mod.TestEngine() as TestEngine);
+    return new WasmReadModelSession(new mod.TestEngine());
   }
   await ensureWasm(opts?.wasm);
   return new WasmBojtosSession(new TestEngine());
