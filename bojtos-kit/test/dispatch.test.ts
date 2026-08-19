@@ -19,7 +19,7 @@ import {
 
 const require = createRequire(import.meta.url);
 const wasmBytes = await readFile(
-  require.resolve("@nanobpm/engine-wasm/nanobpmn_engine_bg.wasm"),
+  require.resolve("@nanobpm/engine-wasm/lean/nanobpmn_engine_bg.wasm"),
 );
 
 // order → charge (payment) → ship (shipping) → done. Two service tasks let a
