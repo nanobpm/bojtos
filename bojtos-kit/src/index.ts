@@ -4,8 +4,11 @@
 
 export {
   ensureWasm,
+  ensureReadModelWasm,
   createBojtosSession,
   type BojtosSession,
+  type ReadModelBojtosSession,
+  type EngineVariant,
   type WasmSource,
 } from "./session.js";
 export {
@@ -61,3 +64,20 @@ export type {
   AgentResult,
   WasmEvent,
 } from "./types.js";
+// The read-model query-result DTOs, re-exported from
+// `@nanobpm/engine-wasm/readmodel-types` (derived from the Camunda-parity REST
+// OpenAPI — a single source of truth, not a hand-copy). A consumer that reads a
+// `ReadModelBojtosSession`'s `searchUserTasks()` / `getFormByKey()` return must
+// be able to name these to write helpers over them.
+export type {
+  UserTaskSearchQueryResult,
+  UserTaskResult,
+  ProcessInstanceSearchQueryResult,
+  ProcessInstanceResult,
+  VariableSearchQueryResult,
+  VariableResult,
+  FormResult,
+  ResourceResult,
+  SearchQueryResponse,
+  SearchQueryPageResponse,
+} from "@nanobpm/engine-wasm/readmodel-types";

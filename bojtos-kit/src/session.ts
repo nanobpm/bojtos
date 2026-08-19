@@ -1,5 +1,12 @@
 import init, { type InitInput, TestEngine } from "@nanobpm/engine-wasm";
 import type {
+  FormResult,
+  ProcessInstanceSearchQueryResult,
+  ResourceResult,
+  UserTaskSearchQueryResult,
+  VariableSearchQueryResult,
+} from "@nanobpm/engine-wasm/readmodel-types";
+import type {
   ActivatedJob,
   ActivateInstruction,
   AgentResult,
@@ -7,9 +14,35 @@ import type {
   WasmEvent,
 } from "./types.js";
 
+/**
+ * Which engine binary backs a session. The two are separate wasm builds
+ * (engine-wasm ships them at distinct subpaths, ADR 0043 §3 / engine-wasm
+ * README):
+ *
+ * - `"lean"` (default) — primary state only; the binary demos/the modeler use.
+ *   Loaded via the static `@nanobpm/engine-wasm` import, so a bundler emits it
+ *   for every bojtos-kit consumer.
+ * - `"readmodel"` — the lean surface **plus** the gateway's Camunda-parity REST
+ *   read channel (`searchUserTasks`/`searchProcessInstances`/`searchVariables`/
+ *   `getFormByKey`/`getResourceByKey`). It carries an in-memory wasm SQLite read
+ *   model (~2× the wire size), so it is loaded via a **dynamic import** — a
+ *   lean-only page never bundles it (wasm can't be tree-shaken out of a fat
+ *   build; code-splitting is the only lever).
+ */
+export type EngineVariant = "lean" | "readmodel";
+
+// Type-only view of the read-model module so we can name its `TestEngine`
+// (a distinct wasm-bindgen class from lean's, with the +5 read methods) without
+// statically importing the heavy binary — the runtime handle is fetched lazily
+// by `ensureReadModelWasm`'s dynamic `import()`.
+type ReadModelModule = typeof import("@nanobpm/engine-wasm/readmodel");
+type ReadModelEngine = InstanceType<ReadModelModule["TestEngine"]>;
+
 // Lazily initialise the wasm module exactly once per page, no matter how many
-// sessions are created. Mirrors the console's original `ensureWasm`.
+// sessions are created. Mirrors the console's original `ensureWasm`. The two
+// variants init independently (a page may use either or both).
 let wasmReady: Promise<void> | null = null;
+let readModelReady: Promise<ReadModelModule> | null = null;
 
 /**
  * The source of the engine wasm binary. Under a bundler that understands
@@ -43,6 +76,33 @@ export function ensureWasm(source?: WasmSource): Promise<void> {
       });
   }
   return wasmReady;
+}
+
+/**
+ * Load **and** initialise the read-model engine variant (idempotent; once per
+ * page). Unlike {@link ensureWasm} this also code-splits the binary in via a
+ * dynamic `import("@nanobpm/engine-wasm/readmodel")`, so a page that only ever
+ * calls {@link ensureWasm} never downloads the heavier read-model wasm. Same
+ * first-call-wins / retry-on-failure semantics as {@link ensureWasm}. Returns
+ * the module namespace so the caller can construct its `TestEngine`.
+ */
+export function ensureReadModelWasm(
+  source?: WasmSource,
+): Promise<ReadModelModule> {
+  if (!readModelReady) {
+    readModelReady = import("@nanobpm/engine-wasm/readmodel")
+      .then(async (mod) => {
+        await mod.default(
+          source === undefined ? undefined : { module_or_path: source },
+        );
+        return mod;
+      })
+      .catch((e) => {
+        readModelReady = null;
+        throw e;
+      });
+  }
+  return readModelReady;
 }
 
 /**
@@ -185,13 +245,52 @@ export interface BojtosSession {
   free(): void;
 }
 
+/**
+ * A {@link BojtosSession} backed by the **read-model** engine variant: the full
+ * lean command surface **plus** the gateway's Camunda-parity REST read channel.
+ * Each read method delegates to the in-memory read model (kept current after
+ * every command, cleared by {@link BojtosSession.reset}) and returns the parsed
+ * DTO — typed against `@nanobpm/engine-wasm/readmodel-types`, which is derived
+ * from the same Camunda REST OpenAPI the wasm mirrors, so these stay in lockstep
+ * with the engine instead of being hand-copied. Obtain one via
+ * `createBojtosSession({ variant: "readmodel" })`.
+ */
+export interface ReadModelBojtosSession extends BojtosSession {
+  /**
+   * Search user tasks through the read model. Honours an optional `{ state? }`
+   * filter (e.g. `"CREATED"`). Mirrors `POST /user-tasks/search`.
+   */
+  searchUserTasks(filterJson?: string): UserTaskSearchQueryResult;
+  /**
+   * Search process instances through the read model. Body is shape-validated;
+   * filter/sort/page fields are not yet honoured (returns every instance).
+   * Mirrors `POST /process-instances/search`.
+   */
+  searchProcessInstances(filterJson?: string): ProcessInstanceSearchQueryResult;
+  /**
+   * Search variables through the read model. Long values are truncated with
+   * `isTruncated: true`. Mirrors `POST /variables/search`.
+   */
+  searchVariables(filterJson?: string): VariableSearchQueryResult;
+  /**
+   * The latest deployed form for `formKey`, or `null` if none. Mirrors
+   * `GET /forms/{formKey}`.
+   */
+  getFormByKey(formKey: string): FormResult | null;
+  /**
+   * The generic resource for `resourceKey`, or `null` if none. Mirrors
+   * `GET /resources/{resourceKey}`.
+   */
+  getResourceByKey(resourceKey: string): ResourceResult | null;
+}
+
 function parseSnapshot(json: string): Snapshot {
   // The wasm engine is the schema authority; its JSON is the contract boundary.
   return JSON.parse(json) as Snapshot;
 }
 
 class WasmBojtosSession implements BojtosSession {
-  private readonly engine: TestEngine;
+  protected readonly engine: TestEngine;
 
   constructor(engine: TestEngine) {
     this.engine = engine;
@@ -350,16 +449,73 @@ class WasmBojtosSession implements BojtosSession {
   }
 }
 
+class WasmReadModelSession
+  extends WasmBojtosSession
+  implements ReadModelBojtosSession
+{
+  // The base stores the engine typed as lean `TestEngine`; the read-model
+  // engine is a structural superset (same core methods + the 5 read methods),
+  // so this narrowing cast is sound. Kept as a getter to avoid a second field.
+  private get rm(): ReadModelEngine {
+    return this.engine as unknown as ReadModelEngine;
+  }
+
+  searchUserTasks(filterJson = "{}"): UserTaskSearchQueryResult {
+    return JSON.parse(
+      this.rm.searchUserTasks(filterJson || "{}"),
+    ) as UserTaskSearchQueryResult;
+  }
+
+  searchProcessInstances(filterJson = "{}"): ProcessInstanceSearchQueryResult {
+    return JSON.parse(
+      this.rm.searchProcessInstances(filterJson || "{}"),
+    ) as ProcessInstanceSearchQueryResult;
+  }
+
+  searchVariables(filterJson = "{}"): VariableSearchQueryResult {
+    return JSON.parse(
+      this.rm.searchVariables(filterJson || "{}"),
+    ) as VariableSearchQueryResult;
+  }
+
+  getFormByKey(formKey: string): FormResult | null {
+    return JSON.parse(this.rm.getFormByKey(formKey)) as FormResult | null;
+  }
+
+  getResourceByKey(resourceKey: string): ResourceResult | null {
+    return JSON.parse(
+      this.rm.getResourceByKey(resourceKey),
+    ) as ResourceResult | null;
+  }
+}
+
 /**
- * Create a fresh headless engine session. Ensures the wasm module is loaded
- * (once per page), then constructs a new {@link TestEngine}. The virtual clock
+ * Create a fresh headless engine session. Ensures the chosen wasm variant is
+ * loaded (once per page), then constructs a new `TestEngine`. The virtual clock
  * starts at 0; deploy a diagram before starting instances. Pass a `wasm` source
  * in environments where the default `import.meta.url` loader can't resolve the
  * binary (Node/Jest, or the external-`.wasm` mode — ADR 0043 §3).
+ *
+ * With `variant: "readmodel"` the returned session also exposes the gateway's
+ * REST read channel (typed {@link ReadModelBojtosSession}); the default `"lean"`
+ * variant is state-only and never downloads the heavier read-model binary.
  */
 export async function createBojtosSession(opts?: {
   wasm?: WasmSource;
+  variant?: "lean";
+}): Promise<BojtosSession>;
+export async function createBojtosSession(opts: {
+  wasm?: WasmSource;
+  variant: "readmodel";
+}): Promise<ReadModelBojtosSession>;
+export async function createBojtosSession(opts?: {
+  wasm?: WasmSource;
+  variant?: EngineVariant;
 }): Promise<BojtosSession> {
+  if (opts?.variant === "readmodel") {
+    const mod = await ensureReadModelWasm(opts.wasm);
+    return new WasmReadModelSession(new mod.TestEngine() as TestEngine);
+  }
   await ensureWasm(opts?.wasm);
   return new WasmBojtosSession(new TestEngine());
 }

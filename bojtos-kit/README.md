@@ -27,6 +27,40 @@ Every command returns the post-run `Snapshot`: `activeElementIds` /
 For React, use [`@nanobpm/bojtos-react`](../bojtos-react), which owns the session
 lifecycle and reactive state on top of this kit.
 
+## Engine variants — `lean` (default) and `readmodel`
+
+`@nanobpm/engine-wasm` ships two binaries; a session picks one via `variant`:
+
+- **`lean`** (default) — primary state only. Read it through `snapshot()` /
+  `events()`. Loaded statically, so every consumer bundles it.
+- **`readmodel`** — the lean surface **plus** the gateway's Camunda-parity REST
+  read channel. Loaded via a **dynamic import**, so a lean-only page never
+  downloads the heavier read-model binary (wasm can't be tree-shaken out of a
+  single build — code-splitting is the only lever).
+
+```ts
+import {
+  createBojtosSession,
+  type UserTaskSearchQueryResult,
+} from "@nanobpm/bojtos-kit";
+
+// `variant: "readmodel"` widens the return type to `ReadModelBojtosSession`:
+const session = await createBojtosSession({ variant: "readmodel" });
+session.deploy(bpmnXml);
+session.createInstance("review", "{}");
+
+// Typed against @nanobpm/engine-wasm/readmodel-types (re-exported here):
+const open: UserTaskSearchQueryResult = session.searchUserTasks(
+  JSON.stringify({ state: "CREATED" }),
+);
+const form = session.getFormByKey("2251799813685250"); // FormResult | null
+```
+
+The read methods — `searchUserTasks`, `searchProcessInstances`,
+`searchVariables`, `getFormByKey`, `getResourceByKey` — return DTOs re-exported
+from `@nanobpm/engine-wasm/readmodel-types`, which are **derived** from the
+Camunda-parity REST OpenAPI (one source of truth, not a hand-copy).
+
 ## Trace model
 
 The kit also holds the framework-agnostic **trace model** the shared
