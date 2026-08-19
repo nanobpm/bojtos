@@ -32,7 +32,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@nanobpm/engine-wasm": "^0.3.0"
+    "@nanobpm/engine-wasm": "^0.6.0"
   },
   "devDependencies": {
     "typescript": "^5.6.3"
