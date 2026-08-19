@@ -746,14 +746,17 @@ export function useReadModel<T>(
   controls: ReadModelBojtosControls,
   select: (controls: ReadModelBojtosControls) => T,
 ): T {
-  // Keep the latest selector without making it a memo dependency: re-running is
-  // driven by the read model moving (`readModelVersion`) / readiness (`phase`),
-  // not by a fresh inline selector identity each render.
+  // Keep the latest selector and controls without making them memo dependencies:
+  // re-running is driven by the read model moving (`readModelVersion`) / readiness
+  // (`phase`), not by a fresh inline selector or a fresh `controls` object literal
+  // (`useBojtos` returns a new object each render, so depending on it directly would
+  // re-run the selector on *every* parent re-render).
   const selectRef = useRef(select);
   selectRef.current = select;
+  const controlsRef = useRef(controls);
+  controlsRef.current = controls;
   return useMemo(
-    () => selectRef.current(controls),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [controls, controls.readModelVersion, controls.phase],
+    () => selectRef.current(controlsRef.current),
+    [controls.readModelVersion, controls.phase],
   );
 }
