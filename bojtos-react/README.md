@@ -6,7 +6,9 @@ React binding for the **Bojtos** in-browser BPMN demo framework
 
 - **`useBojtos({ bpmn })`** — owns the engine session and the reactive
   `snapshot` / `events` / `processIds` state, and exposes the engine commands
-  (`createInstance`, `completeJob`, `failJob`, `advanceTime`, `reset`).
+  (`createInstance`, `completeJob`, `failJob`, `advanceTime`, `reset`). Pass
+  `variant: "readmodel"` to also thread the gateway's read channel through the
+  hook — see [Read model](#read-model) below.
 - **`<BpmnRuntimeView xml activeIds incidentIds />`** — the live diagram: it
   imports the XML once and updates token (`nano-active`) / incident
   (`nano-incident`) markers in place, so zoom/scroll survive stepping.
@@ -70,6 +72,48 @@ For an agentic run, emit `TraceEntry` lines from your handlers (with the additiv
 `log-line log-<kind>`, …) the demo stylesheet already targets, so your CSS applies
 unchanged. It never imports `bpmn-js`, so importing it alone won't pull the
 diagram bundle in.
+
+## Read model
+
+By default `useBojtos` loads the **lean** engine (primary state only). Pass
+`variant: "readmodel"` to load the read-model engine variant instead, which adds
+the gateway's Camunda-parity REST read channel. The returned controls then widen
+from `BojtosControls` to `ReadModelBojtosControls`, exposing five pull queries —
+`searchUserTasks`, `searchProcessInstances`, `searchVariables`, `getFormByKey`,
+`getResourceByKey` — plus a `readModelVersion` counter. The heavier read-model
+binary code-splits in only for `"readmodel"` hooks; a lean hook never downloads
+it.
+
+The read queries are **pull** projections of the read model, not part of the
+command→`snapshot` push loop, so they don't land in state on their own. Each read
+method returns `null` until the engine is ready (and on a lean hook), and
+`readModelVersion` bumps after every command / worker round / deploy / reset —
+i.e. whenever the read model may have moved. Make a query reactive with the
+ready-made `useReadModel` selector, which re-runs it keyed on `readModelVersion`:
+
+```tsx
+import { useBojtos, useReadModel } from "@nanobpm/bojtos-react";
+
+function ReviewInbox({ bpmn }: { bpmn: string }) {
+  const run = useBojtos({ bpmn, variant: "readmodel" });
+  // Re-runs after every command / round; `?? []` covers the not-ready null.
+  const openTasks = useReadModel(
+    run,
+    (rm) => rm.searchUserTasks('{"state":"CREATED"}')?.items ?? [],
+  );
+  return (
+    <ul>
+      {openTasks.map((t) => (
+        <li key={t.userTaskKey}>{t.elementId}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+You can also call the read methods imperatively (e.g. from an event handler)
+whenever you want a one-off answer — `useReadModel` is just the reactive wrapper
+over the same `readModelVersion` signal.
 
 ## Peer requirements
 
