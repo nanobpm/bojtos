@@ -61,6 +61,28 @@ The read methods — `searchUserTasks`, `searchProcessInstances`,
 from `@nanobpm/engine-wasm/readmodel-types`, which are **derived** from the
 Camunda-parity REST OpenAPI (one source of truth, not a hand-copy).
 
+### `readModel()` — the `@nanobpm/engine-testkit` assertion handle
+
+A `readmodel`-variant session also exposes `readModel()`, which returns the
+session's engine read model as `@nanobpm/engine-testkit`'s structural
+[`EngineReadModel`](https://www.npmjs.com/package/@nanobpm/engine-testkit) port
+(`snapshot()` + the user-task read channel). Hand it straight to the `assertThat*`
+DSL — it reads the engine's canonical snapshot off *this* session, so there is no
+re-derived copy of the state:
+
+```ts
+import { assertThatInstance, assertThatUserTask, byProcessId } from "@nanobpm/engine-testkit";
+
+const rm = session.readModel(); // typed EngineReadModel — a compile-time guarantee
+
+assertThatInstance(rm, byProcessId("review")).isActive().hasActiveElement("review-task");
+await assertThatUserTask(rm, { elementId: "review-task" }).isCreated();
+```
+
+The React binding surfaces the same handle as `useBojtos({ variant: "readmodel" }).readModel()`
+(`EngineReadModel | null` until the engine is ready).
+
+
 ## Trace model
 
 The kit also holds the framework-agnostic **trace model** the shared

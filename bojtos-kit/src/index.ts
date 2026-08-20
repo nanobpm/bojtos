@@ -11,6 +11,14 @@ export {
   type EngineVariant,
   type WasmSource,
 } from "./session.js";
+// The engine-testkit read-model port a `ReadModelBojtosSession.readModel()`
+// satisfies, re-exported so a consumer can name the handle's type (e.g. to store
+// it) without a direct import of `@nanobpm/engine-testkit`.
+export type {
+  EngineReadModel,
+  UserTaskQuery,
+  UserTaskRow,
+} from "@nanobpm/engine-testkit";
 export {
   dispatchWorkers,
   dispatchRound,

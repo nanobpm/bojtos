@@ -7,6 +7,7 @@ import {
   type DispatchOptions,
   dispatchRound,
   dispatchWorkers,
+  type EngineReadModel,
   type EngineVariant,
   type FormResult,
   type JobHandler,
@@ -262,6 +263,15 @@ export interface ReadModelBojtosControls extends BojtosControls {
    * engine is ready.
    */
   getResourceByKey(resourceKey: string): ResourceResult | null;
+  /**
+   * This session's engine read-model handle as `@nanobpm/engine-testkit`'s
+   * structural `EngineReadModel` port — feed it straight to `assertThatInstance`
+   * / `assertThatUserTask`. Returns `null` until the engine is ready (or on a
+   * lean-variant hook). Like the other read queries it is a pull projection: the
+   * handle reads live engine state on each call, so re-read it (keyed on
+   * {@link readModelVersion}) rather than caching its results.
+   */
+  readModel(): EngineReadModel | null;
   /**
    * A monotonically increasing counter bumped after every command / worker round
    * (and on deploy / reset). It is the reactivity signal for the pull read
@@ -685,6 +695,10 @@ export function useBojtos({
       ),
     [],
   );
+  const readModel = useCallback(
+    () => selectReadModel(readModelRef.current, (rm) => rm.readModel()),
+    [],
+  );
 
   return {
     phase,
@@ -717,6 +731,7 @@ export function useBojtos({
     searchVariables,
     getFormByKey,
     getResourceByKey,
+    readModel,
     readModelVersion,
   };
 }

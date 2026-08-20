@@ -7,6 +7,11 @@ import type {
   VariableSearchQueryResult,
 } from "@nanobpm/engine-wasm/readmodel-types";
 import type {
+  EngineReadModel,
+  UserTaskQuery,
+  UserTaskRow,
+} from "@nanobpm/engine-testkit";
+import type {
   ActivatedJob,
   ActivateInstruction,
   AgentResult,
@@ -282,6 +287,18 @@ export interface ReadModelBojtosSession extends BojtosSession {
    * `GET /resources/{resourceKey}`.
    */
   getResourceByKey(resourceKey: string): ResourceResult | null;
+  /**
+   * This session's engine read model as the structural {@link EngineReadModel}
+   * port that `@nanobpm/engine-testkit`'s `assertThat*` DSL asserts over. Hand it
+   * straight to `assertThatInstance` / `assertThatUserTask`: it reads the
+   * canonical engine snapshot (`snapshot()`) and the user-task read channel
+   * (`searchUserTasks` / `openUserTasks`, the CREATED set) off *this* session, so
+   * a consumer (e.g. `camunda/web-demo-framework`) asserts against the engine's
+   * single source of truth rather than re-deriving a snapshot. The returned
+   * object is typed `EngineReadModel`, so its structural conformance to the port
+   * is a compile-time guarantee, not a runtime cast.
+   */
+  readModel(): EngineReadModel;
 }
 
 function parseSnapshot(json: string): Snapshot {
@@ -491,6 +508,56 @@ class WasmReadModelSession
     return JSON.parse(
       this.rm.getResourceByKey(resourceKey),
     ) as ResourceResult | null;
+  }
+
+  readModel(): EngineReadModel {
+    // Reads flow straight off this session's engine — the same parsed snapshot
+    // and the same user-task read channel the rest of the session exposes — so
+    // there is a single source of truth and no re-derived copy of the state
+    // (nanobpm/bojtos#15). Typing the returned object as `EngineReadModel` makes
+    // structural conformance to engine-testkit's port a compile-time assignment.
+    const searchRows = (query: UserTaskQuery): UserTaskRow[] =>
+      this.searchUserTasks(
+        JSON.stringify(query.state === undefined ? {} : { state: query.state }),
+      )
+        .items.filter((task) => {
+          // The wasm read model honours the lifecycle `state` filter itself; the
+          // non-lifecycle narrowings the DSL relies on (processInstanceKey /
+          // assignee / candidateGroup) are applied here so `assertThatUserTask`'s
+          // `hasAssignee` / `hasCandidateGroup` / instance-scoped selects hold.
+          if (
+            query.processInstanceKey !== undefined &&
+            task.processInstanceKey !== query.processInstanceKey
+          ) {
+            return false;
+          }
+          if (query.assignee !== undefined && task.assignee !== query.assignee) {
+            return false;
+          }
+          if (
+            query.candidateGroup !== undefined &&
+            !task.candidateGroups.includes(query.candidateGroup)
+          ) {
+            return false;
+          }
+          return true;
+        })
+        .map((task) => ({
+          userTaskKey: task.userTaskKey,
+          elementId: task.elementId ?? undefined,
+        }));
+
+    return {
+      // The engine snapshot is already the DSL's expected structural shape
+      // (`instances`/`activeElements`/`elementStats`/`incidents`/per-instance
+      // `variables`); the assertion only retypes the same object as the port's
+      // open `Record<string, unknown>` — it does not re-derive it.
+      snapshot: () => this.snapshot() as unknown as Record<string, unknown>,
+      searchUserTasks: (query) => Promise.resolve(searchRows(query)),
+      // openUserTasks is searchUserTasks pinned to the open (CREATED) set.
+      openUserTasks: (query) =>
+        Promise.resolve(searchRows({ ...query, state: "CREATED" })),
+    };
   }
 }
 

@@ -32,6 +32,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
+    "@nanobpm/engine-testkit": "^0.1.0",
     "@nanobpm/engine-wasm": "^0.7.0"
   },
   "devDependencies": {
