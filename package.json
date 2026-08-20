@@ -20,7 +20,7 @@
     "release": "node scripts/release.mjs"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.6"
   },
   "devDependencies": {
     "@semantic-release/exec": "^7.1.0",
