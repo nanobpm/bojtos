@@ -7,8 +7,9 @@
 //     a compile-time assignment (`const port: EngineReadModel = …`), not a shim;
 //  2. that same handle powers `assertThatInstance` / `assertThatUserTask` over a
 //     real instance advanced through the session's own command surface; and
-//  3. no snapshot re-derivation — the handle's `snapshot()` returns the *same*
-//     object the session's `snapshot()` returns (single source of truth).
+//  3. no snapshot re-derivation — the handle's `snapshot()` deep-equals the
+//     session's `snapshot()`, reading from the same source of truth (each call
+//     parses the canonical snapshot afresh, so they are equal, not identical).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -88,8 +89,9 @@ test("readModel() sees the instance complete after the user task is completed", 
 
   session.completeUserTask(userTaskKey, '{"decision":"approved"}');
 
-  // The SAME handle, re-read, now reflects the completed run — proving it reads
-  // live engine state rather than a snapshot captured at construction time.
+  // Re-reading through the same `port` handle now reflects the completed run —
+  // proving subsequent calls read live engine state rather than a snapshot
+  // captured at construction time.
   assertThatInstance(port, byProcessId("review")).hasCompleted();
   await assertThatUserTask(port, { elementId: "review-task" }).isCompleted();
 
