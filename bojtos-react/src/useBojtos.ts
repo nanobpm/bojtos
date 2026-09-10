@@ -203,6 +203,15 @@ export interface BojtosControls {
     workers: Record<string, JobHandler>,
     opts?: DispatchOptions,
   ): Promise<RoundResult | null>;
+  /**
+   * Rebuild the entire simulation from a trace previously read off {@link events}
+   * — replaces the live engine's state (instances, jobs, timers, event log,
+   * clock) with the reconstructed run and reflects the resulting snapshot/events.
+   * Returns the restored snapshot, or null if there is no live session or the
+   * trace failed to decode (the engine is left untouched on a decode failure).
+   * The inverse of reading {@link events}: persist a run, then restore it.
+   */
+  replayEvents(events: WasmEvent[]): Snapshot | null;
   /** Re-deploy the diagram on the existing engine, clearing run state. */
   reset(): void;
 }
@@ -579,6 +588,10 @@ export function useBojtos({
       run((s) => s.updateUserTask(userTaskKey, changesetJson)),
     [run],
   );
+  const replayEvents = useCallback(
+    (events: WasmEvent[]) => run((s) => s.replayEvents(events)),
+    [run],
+  );
 
   const runWorkers = useCallback(
     async (
@@ -723,6 +736,7 @@ export function useBojtos({
     assignUserTask,
     unassignUserTask,
     updateUserTask,
+    replayEvents,
     runWorkers,
     stepWorkers,
     reset,
