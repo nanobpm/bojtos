@@ -223,13 +223,12 @@ export interface Snapshot {
   elementStats: ElementStatDto[];
   takenSequenceFlows: SequenceFlowDto[];
   /**
-   * Evaluated DMN decisions.
-   *
-   * **Reserved.** `BojtosSession.deploy` takes a BPMN resource only, so there is
-   * currently no way to deploy a decision and nothing can populate this — treat
-   * a consumer that renders it as writing for a future engine, not reading live
-   * data. Kept in the contract so the shape doesn't change when deployment of
-   * decision resources lands.
+   * Evaluated DMN decisions recorded on this instance — one per
+   * `businessRuleTask` evaluation whose `zeebe:calledDecision` resolved against a
+   * decision deployed via {@link BojtosSession.deploy} or
+   * {@link BojtosSession.deployDecision}. Standalone
+   * {@link BojtosSession.evaluateDecision} is read-only and does **not** append
+   * here — it returns its result without recording an instance.
    */
   decisionInstances: DecisionInstanceDto[];
   activeElementIds: string[];

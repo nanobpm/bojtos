@@ -115,8 +115,11 @@ export function ensureReadModelWasm(
 /**
  * A headless handle to one in-browser engine instance: deploy a diagram, start
  * instances, complete/fail jobs, advance the virtual clock, and read the event
- * log. Every command returns the post-run {@link Snapshot}. This is the single
- * scenario runner the Bojtos framework and the console both drive (ADR 0043 §8);
+ * log. Each state-mutating *run* command returns the post-run {@link Snapshot};
+ * the deployment/evaluation entry points are the exceptions — `deploy` returns
+ * the deployable process ids, `deployDecision` the registered decisions, and the
+ * read-only `evaluateDecision` a decision output. This is the single scenario
+ * runner the Bojtos framework and the console both drive (ADR 0043 §8);
  * framework bindings (`@nanobpm/bojtos-react`) own the reactive state on top.
  */
 export interface BojtosSession {
@@ -342,7 +345,14 @@ class WasmBojtosSession implements BojtosSession {
   }
 
   deploy(xml: string): { processIds: string[] } {
-    return JSON.parse(this.engine.deploy(xml)) as { processIds: string[] };
+    // A DMN resource routes to decision deployment (its result has no
+    // `processIds`); normalize to an empty list so the BPMN-typed contract
+    // holds rather than yielding `undefined`. Prefer `deployDecision` for DMN,
+    // which returns the registered decisions.
+    const result = JSON.parse(this.engine.deploy(xml)) as {
+      processIds?: string[];
+    };
+    return { processIds: result.processIds ?? [] };
   }
 
   deployDecision(xml: string): DeployDecisionResult {

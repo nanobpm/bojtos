@@ -20,9 +20,12 @@ const trace = session.events(); // WasmEvent[] for a step/trace view
 session.free();
 ```
 
-Every command returns the post-run `Snapshot`: `activeElementIds` /
-`incidentElementIds` drive the token/incident highlight, and
-`instances[].variables` is the live payload that mutates as workers complete.
+Each state-mutating *run* command returns the post-run `Snapshot`:
+`activeElementIds` / `incidentElementIds` drive the token/incident highlight, and
+`instances[].variables` is the live payload that mutates as workers complete. The
+deployment/evaluation entry points are the exceptions — `deploy` returns the
+deployable process ids, `deployDecision` the registered decisions, and the
+read-only `evaluateDecision` a decision output (see below).
 
 For React, use [`@nanobpm/bojtos-react`](../bojtos-react), which owns the session
 lifecycle and reactive state on top of this kit.

@@ -61,75 +61,97 @@ async function newDecisionSession(): Promise<BojtosSession> {
 
 test("deployDecision registers every decision in the DRG with typed metadata", async () => {
   const session = await newDecisionSession();
-  const result = session.deployDecision(FORCE_USER_DMN);
+  try {
+    const result = session.deployDecision(FORCE_USER_DMN);
 
-  assert.equal(result.decisionRequirementsId, "force_users");
-  assert.equal(typeof result.decisionRequirementsKey, "string");
-  assert.equal(result.version, 1);
+    assert.equal(result.decisionRequirementsId, "force_users");
+    assert.equal(typeof result.decisionRequirementsKey, "string");
+    assert.equal(result.version, 1);
 
-  const ids = result.decisions.map((d) => d.decisionId).sort();
-  assert.deepEqual(ids, ["force_user", "jedi_or_sith"]);
+    const ids = result.decisions.map((d) => d.decisionId).sort();
+    assert.deepEqual(ids, ["force_user", "jedi_or_sith"]);
 
-  const jos = result.decisions.find((d) => d.decisionId === "jedi_or_sith");
-  assert.ok(jos, "jedi_or_sith is registered");
-  assert.equal(jos.decisionName, "Jedi or Sith");
-  assert.equal(typeof jos.decisionKey, "string");
-  assert.equal(jos.version, 1);
+    const jos = result.decisions.find((d) => d.decisionId === "jedi_or_sith");
+    assert.ok(jos, "jedi_or_sith is registered");
+    assert.equal(jos.decisionName, "Jedi or Sith");
+    assert.equal(typeof jos.decisionKey, "string");
+    assert.equal(jos.version, 1);
+  } finally {
+    session.free();
+  }
 });
 
 test("evaluateDecision runs a deployed decision and returns its output", async () => {
   const session = await newDecisionSession();
-  session.deployDecision(FORCE_USER_DMN);
+  try {
+    session.deployDecision(FORCE_USER_DMN);
 
-  const jedi = session.evaluateDecision(
-    "jedi_or_sith",
-    JSON.stringify({ lightsaberColor: "blue" }),
-  );
-  assert.equal(jedi.decisionId, "jedi_or_sith");
-  assert.equal(typeof jedi.decisionKey, "string");
-  assert.equal(jedi.output, "Jedi");
+    const jedi = session.evaluateDecision(
+      "jedi_or_sith",
+      JSON.stringify({ lightsaberColor: "blue" }),
+    );
+    assert.equal(jedi.decisionId, "jedi_or_sith");
+    assert.equal(typeof jedi.decisionKey, "string");
+    assert.equal(jedi.output, "Jedi");
 
-  const sith = session.evaluateDecision(
-    "jedi_or_sith",
-    JSON.stringify({ lightsaberColor: "red" }),
-  );
-  assert.equal(sith.output, "Sith");
+    const sith = session.evaluateDecision(
+      "jedi_or_sith",
+      JSON.stringify({ lightsaberColor: "red" }),
+    );
+    assert.equal(sith.output, "Sith");
 
-  // The dependent decision pulls its required decision transitively.
-  const character = session.evaluateDecision(
-    "force_user",
-    JSON.stringify({ lightsaberColor: "blue", height: 200 }),
-  );
-  assert.equal(character.decisionId, "force_user");
-  assert.equal(character.output, "Mace Windu");
+    // The dependent decision pulls its required decision transitively.
+    const character = session.evaluateDecision(
+      "force_user",
+      JSON.stringify({ lightsaberColor: "blue", height: 200 }),
+    );
+    assert.equal(character.decisionId, "force_user");
+    assert.equal(character.output, "Mace Windu");
+  } finally {
+    session.free();
+  }
 });
 
 test("evaluateDecision defaults empty variables to an empty object", async () => {
   const session = await newDecisionSession();
-  session.deployDecision(FORCE_USER_DMN);
+  try {
+    session.deployDecision(FORCE_USER_DMN);
 
-  // No matching rule for an absent colour falls through to the catch-all only in
-  // `force_user`; `jedi_or_sith` has no catch-all, so an empty input yields null.
-  const result = session.evaluateDecision("jedi_or_sith", "");
-  assert.equal(result.decisionId, "jedi_or_sith");
-  assert.equal(result.output, null);
+    // No matching rule for an absent colour falls through to the catch-all only
+    // in `force_user`; `jedi_or_sith` has no catch-all, so empty input → null.
+    const result = session.evaluateDecision("jedi_or_sith", "");
+    assert.equal(result.decisionId, "jedi_or_sith");
+    assert.equal(result.output, null);
+  } finally {
+    session.free();
+  }
 });
 
 test("evaluateDecision throws for an unknown decision id", async () => {
   const session = await newDecisionSession();
-  session.deployDecision(FORCE_USER_DMN);
-
-  assert.throws(() => session.evaluateDecision("nope", "{}"));
+  try {
+    session.deployDecision(FORCE_USER_DMN);
+    assert.throws(() => session.evaluateDecision("nope", "{}"));
+  } finally {
+    session.free();
+  }
 });
 
-test("deploy routes a DMN resource by content (engine-side routing)", async () => {
+test("deploy routes a DMN resource by content, returning no process ids", async () => {
   const session = await newDecisionSession();
-  // `deploy` is typed for BPMN, but the engine routes DMN by content; the call
-  // succeeds and the decision is then evaluable.
-  session.deploy(FORCE_USER_DMN);
-  const result = session.evaluateDecision(
-    "jedi_or_sith",
-    JSON.stringify({ lightsaberColor: "green" }),
-  );
-  assert.equal(result.output, "Jedi");
+  try {
+    // `deploy` is typed for BPMN, but the engine routes DMN by content. The
+    // call succeeds; the BPMN-typed result normalizes to an empty process list
+    // (a DMN deploys no processes), and the decision is then evaluable.
+    const deployed = session.deploy(FORCE_USER_DMN);
+    assert.deepEqual(deployed.processIds, []);
+
+    const result = session.evaluateDecision(
+      "jedi_or_sith",
+      JSON.stringify({ lightsaberColor: "green" }),
+    );
+    assert.equal(result.output, "Jedi");
+  } finally {
+    session.free();
+  }
 });
