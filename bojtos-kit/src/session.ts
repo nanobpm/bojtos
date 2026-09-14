@@ -15,6 +15,8 @@ import type {
   ActivatedJob,
   ActivateInstruction,
   AgentResult,
+  DeployDecisionResult,
+  EvaluateDecisionResult,
   Snapshot,
   WasmEvent,
 } from "./types.js";
@@ -113,16 +115,45 @@ export function ensureReadModelWasm(
 /**
  * A headless handle to one in-browser engine instance: deploy a diagram, start
  * instances, complete/fail jobs, advance the virtual clock, and read the event
- * log. Every command returns the post-run {@link Snapshot}. This is the single
- * scenario runner the Bojtos framework and the console both drive (ADR 0043 §8);
+ * log. Each state-mutating *run* command returns the post-run {@link Snapshot};
+ * the deployment/evaluation entry points are the exceptions — `deploy` returns
+ * the deployable process ids, `deployDecision` the registered decisions, and the
+ * read-only `evaluateDecision` a decision output. This is the single scenario
+ * runner the Bojtos framework and the console both drive (ADR 0043 §8);
  * framework bindings (`@nanobpm/bojtos-react`) own the reactive state on top.
  */
 export interface BojtosSession {
   /**
-   * Parse and deploy a BPMN resource. Returns the deployable process ids.
+   * Parse and deploy a **BPMN** resource. Returns the deployable process ids.
    * Throws a JS error carrying the parse/deploy failure message.
+   *
+   * The engine routes by document content, so this also accepts a DMN resource,
+   * but its return type is fixed to the process shape — prefer
+   * {@link deployDecision} for DMN so the result (the registered decisions) is
+   * typed.
    */
   deploy(xml: string): { processIds: string[] };
+  /**
+   * Parse and deploy a **DMN** decision-requirements resource, registering every
+   * `<decision>` it contains (by id) so a business rule task's
+   * `zeebe:calledDecision` resolves and {@link evaluateDecision} can run it.
+   * Returns the deployed decisions' metadata. Throws a JS error carrying the
+   * parse/deploy failure message.
+   */
+  deployDecision(xml: string): DeployDecisionResult;
+  /**
+   * Evaluate an already-deployed decision by id against `variablesJson` — the
+   * standalone counterpart to a business rule task's in-line evaluation. The
+   * decision must already be deployed (via {@link deploy} / {@link deployDecision}).
+   * Read-only: it evaluates and returns the result without mutating engine state
+   * or recording a decision instance. `variablesJson` is a JSON object string
+   * (`"{}"` / `""` for none). Returns the decision output plus its identity, or
+   * throws a JS error ("unknown decision" / evaluation failure).
+   */
+  evaluateDecision(
+    decisionId: string,
+    variablesJson: string,
+  ): EvaluateDecisionResult;
   /** Start an instance of `processId`, seeding it with `variablesJson`. */
   createInstance(processId: string, variablesJson: string): Snapshot;
   /**
@@ -314,7 +345,37 @@ class WasmBojtosSession implements BojtosSession {
   }
 
   deploy(xml: string): { processIds: string[] } {
-    return JSON.parse(this.engine.deploy(xml)) as { processIds: string[] };
+    // A DMN resource routes to decision deployment (its result has no
+    // `processIds`); normalize to an empty list so the BPMN-typed contract
+    // holds rather than yielding `undefined`. Prefer `deployDecision` for DMN,
+    // which returns the registered decisions.
+    const result = JSON.parse(this.engine.deploy(xml)) as {
+      processIds?: string[];
+    };
+    return { processIds: result.processIds ?? [] };
+  }
+
+  deployDecision(xml: string): DeployDecisionResult {
+    // The engine also returns a post-deploy `snapshot`; like `deploy`, project
+    // it out so the returned value matches the declared type exactly (rather
+    // than carrying a hidden field). Call `snapshot()` for current run state.
+    const { decisionRequirementsId, decisionRequirementsKey, version, decisions } =
+      JSON.parse(this.engine.deployDecision(xml)) as DeployDecisionResult;
+    return {
+      decisionRequirementsId,
+      decisionRequirementsKey,
+      version,
+      decisions,
+    };
+  }
+
+  evaluateDecision(
+    decisionId: string,
+    variablesJson: string,
+  ): EvaluateDecisionResult {
+    return JSON.parse(
+      this.engine.evaluateDecision(decisionId, variablesJson || "{}"),
+    ) as EvaluateDecisionResult;
   }
 
   createInstance(processId: string, variablesJson: string): Snapshot {

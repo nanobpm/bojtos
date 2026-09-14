@@ -126,6 +126,43 @@ export interface DecisionInstanceDto {
   evaluatedAt: number;
 }
 
+/** One `<decision>` registered by a DMN deployment (see {@link DeployDecisionResult}). */
+export interface DeployedDecision {
+  decisionId: string;
+  decisionName: string;
+  decisionKey: string;
+  version: number;
+}
+
+/**
+ * Result of deploying a DMN decision-requirements resource
+ * ({@link BojtosSession.deployDecision}): the registered decisions' metadata.
+ * Every `<decision>` is registered by id so a business rule task's
+ * `zeebe:calledDecision` resolves and {@link BojtosSession.evaluateDecision}
+ * can run it.
+ *
+ * The engine also returns a post-deploy `snapshot`, but — as with
+ * {@link BojtosSession.deploy} — it is intentionally projected out here (a
+ * deployment records no run state worth surfacing); call
+ * {@link BojtosSession.snapshot} for the current state.
+ */
+export interface DeployDecisionResult {
+  decisionRequirementsId: string;
+  decisionRequirementsKey: string;
+  version: number;
+  decisions: DeployedDecision[];
+}
+
+/**
+ * Result of {@link BojtosSession.evaluateDecision}: the decision's output value
+ * (any FEEL/JSON value) plus its identity.
+ */
+export interface EvaluateDecisionResult {
+  decisionId: string;
+  decisionKey: string;
+  output: unknown;
+}
+
 /**
  * One activation instruction for {@link BojtosSession.modify}: place a new token
  * at `elementId`, first merging `variables` into the instance's root scope.
@@ -191,13 +228,12 @@ export interface Snapshot {
   elementStats: ElementStatDto[];
   takenSequenceFlows: SequenceFlowDto[];
   /**
-   * Evaluated DMN decisions.
-   *
-   * **Reserved.** `BojtosSession.deploy` takes a BPMN resource only, so there is
-   * currently no way to deploy a decision and nothing can populate this — treat
-   * a consumer that renders it as writing for a future engine, not reading live
-   * data. Kept in the contract so the shape doesn't change when deployment of
-   * decision resources lands.
+   * Evaluated DMN decisions recorded on this instance — one per
+   * `businessRuleTask` evaluation whose `zeebe:calledDecision` resolved against a
+   * decision deployed via {@link BojtosSession.deploy} or
+   * {@link BojtosSession.deployDecision}. Standalone
+   * {@link BojtosSession.evaluateDecision} is read-only and does **not** append
+   * here — it returns its result without recording an instance.
    */
   decisionInstances: DecisionInstanceDto[];
   activeElementIds: string[];

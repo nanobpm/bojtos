@@ -7,8 +7,10 @@ import {
   type DispatchOptions,
   dispatchRound,
   dispatchWorkers,
+  type DeployDecisionResult,
   type EngineReadModel,
   type EngineVariant,
+  type EvaluateDecisionResult,
   type FormResult,
   type JobHandler,
   type ProcessInstanceSearchQueryResult,
@@ -89,6 +91,26 @@ export interface BojtosControls {
   events: WasmEvent[];
   /** Start an instance; returns the post-run snapshot (with `created`) or null. */
   createInstance(processId: string, variablesJson: string): Snapshot | null;
+  /**
+   * Deploy a **DMN** decision-requirements resource, registering its decisions so
+   * a business rule task's `zeebe:calledDecision` resolves and
+   * {@link evaluateDecision} can run them. Returns the deployed decisions'
+   * metadata, or `null` before the engine is ready / on a deploy error (see
+   * `error`). Distinct from the BPMN `bpmn` prop the hook deploys automatically;
+   * a resource deployed here is retained and redeployed across {@link reset} (but
+   * dropped when the `bpmn` prop changes to a fresh engine).
+   */
+  deployDecision(xml: string): DeployDecisionResult | null;
+  /**
+   * Evaluate an already-deployed decision by id against `variablesJson`
+   * (`"{}"` / `""` for none). Read-only — it does not mutate engine state. Returns
+   * the decision's output plus identity, or `null` before the engine is ready /
+   * on an evaluation error (see `error`).
+   */
+  evaluateDecision(
+    decisionId: string,
+    variablesJson: string,
+  ): EvaluateDecisionResult | null;
   /** Complete a waiting job, merging output variables. */
   completeJob(jobKey: string, variablesJson: string): Snapshot | null;
   /**
@@ -356,6 +378,12 @@ export function useBojtos({
   // `sessionRef`) so the read methods reach the query surface without a cast — a
   // lean session simply leaves this null and every read pull returns null.
   const readModelRef = useRef<ReadModelBojtosSession | null>(null);
+  // DMN resources deployed imperatively via `deployDecision` (in source order,
+  // deduped). The hook owns the deployment lifecycle, so it must redeploy these
+  // after a `reset()` wipes all definitions — otherwise `evaluateDecision` and
+  // any `businessRuleTask` referring to a decision would silently break on the
+  // next run. Cleared when a new diagram spins up a fresh engine.
+  const deployedDmnRef = useRef<string[]>([]);
   const [phase, setPhase] = useState<BojtosPhase>("loading");
   const [error, setError] = useState<string | null>(null);
   const [processIds, setProcessIds] = useState<string[]>([]);
@@ -425,6 +453,10 @@ export function useBojtos({
     setSnapshot(null);
     setEvents([]);
     setError(null);
+    // A fresh engine has none of the previous diagram's imperatively-deployed
+    // DMN; drop the retention list so a stale decision isn't redeployed on the
+    // next `reset()`.
+    deployedDmnRef.current = [];
     // Resolve the session with the requested variant. The `readmodel` branch
     // keeps the narrowed `ReadModelBojtosSession` so the read methods reach the
     // query surface without a cast; the lean branch leaves `readModelRef` null.
@@ -492,6 +524,49 @@ export function useBojtos({
     (processId: string, variablesJson: string) =>
       run((s) => s.createInstance(processId, variablesJson)),
     [run],
+  );
+  const deployDecision = useCallback(
+    (xml: string): DeployDecisionResult | null => {
+      const session = sessionRef.current;
+      if (!session) return null;
+      try {
+        const result = session.deployDecision(xml);
+        setError(null);
+        // Retain for redeploy across `reset()` (deduped, source order).
+        if (!deployedDmnRef.current.includes(xml)) {
+          deployedDmnRef.current.push(xml);
+        }
+        // Registering decisions changed the engine's deployed resources; refresh
+        // the snapshot/event log and signal reactive read queries to re-pull.
+        setSnapshot(session.snapshot());
+        setEvents(readEvents(session));
+        bumpReadModel();
+        return result;
+      } catch (e) {
+        setError(String(e));
+        return null;
+      }
+    },
+    [bumpReadModel, readEvents],
+  );
+  const evaluateDecision = useCallback(
+    (
+      decisionId: string,
+      variablesJson: string,
+    ): EvaluateDecisionResult | null => {
+      const session = sessionRef.current;
+      if (!session) return null;
+      try {
+        // Read-only: no snapshot/read-model mutation, so nothing to refresh.
+        const result = session.evaluateDecision(decisionId, variablesJson);
+        setError(null);
+        return result;
+      } catch (e) {
+        setError(String(e));
+        return null;
+      }
+    },
+    [],
   );
   const completeJob = useCallback(
     (jobKey: string, variablesJson: string) =>
@@ -652,6 +727,9 @@ export function useBojtos({
       // across runs (a plain redeploy leaves prior instances resident).
       session.reset();
       deployInto(session);
+      // `reset()` also cleared any imperatively-deployed DMN; redeploy so a
+      // decision stays evaluable and a `businessRuleTask` still resolves.
+      for (const xml of deployedDmnRef.current) session.deployDecision(xml);
     } catch (e) {
       setError(String(e));
     }
@@ -707,6 +785,8 @@ export function useBojtos({
     snapshot,
     events,
     createInstance,
+    deployDecision,
+    evaluateDecision,
     completeJob,
     completeAgentJob,
     failJob,
