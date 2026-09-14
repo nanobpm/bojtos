@@ -126,6 +126,38 @@ export interface DecisionInstanceDto {
   evaluatedAt: number;
 }
 
+/** One `<decision>` registered by a DMN deployment (see {@link DeployDecisionResult}). */
+export interface DeployedDecision {
+  decisionId: string;
+  decisionName: string;
+  decisionKey: string;
+  version: number;
+}
+
+/**
+ * Result of deploying a DMN decision-requirements resource
+ * ({@link BojtosSession.deployDecision}): the registered decisions' metadata.
+ * Every `<decision>` is registered by id so a business rule task's
+ * `zeebe:calledDecision` resolves and {@link BojtosSession.evaluateDecision}
+ * can run it.
+ */
+export interface DeployDecisionResult {
+  decisionRequirementsId: string;
+  decisionRequirementsKey: string;
+  version: number;
+  decisions: DeployedDecision[];
+}
+
+/**
+ * Result of {@link BojtosSession.evaluateDecision}: the decision's output value
+ * (any FEEL/JSON value) plus its identity.
+ */
+export interface EvaluateDecisionResult {
+  decisionId: string;
+  decisionKey: string;
+  output: unknown;
+}
+
 /**
  * One activation instruction for {@link BojtosSession.modify}: place a new token
  * at `elementId`, first merging `variables` into the instance's root scope.

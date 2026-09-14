@@ -15,6 +15,8 @@ import type {
   ActivatedJob,
   ActivateInstruction,
   AgentResult,
+  DeployDecisionResult,
+  EvaluateDecisionResult,
   Snapshot,
   WasmEvent,
 } from "./types.js";
@@ -119,10 +121,36 @@ export function ensureReadModelWasm(
  */
 export interface BojtosSession {
   /**
-   * Parse and deploy a BPMN resource. Returns the deployable process ids.
+   * Parse and deploy a **BPMN** resource. Returns the deployable process ids.
    * Throws a JS error carrying the parse/deploy failure message.
+   *
+   * The engine routes by document content, so this also accepts a DMN resource,
+   * but its return type is fixed to the process shape — prefer
+   * {@link deployDecision} for DMN so the result (the registered decisions) is
+   * typed.
    */
   deploy(xml: string): { processIds: string[] };
+  /**
+   * Parse and deploy a **DMN** decision-requirements resource, registering every
+   * `<decision>` it contains (by id) so a business rule task's
+   * `zeebe:calledDecision` resolves and {@link evaluateDecision} can run it.
+   * Returns the deployed decisions' metadata. Throws a JS error carrying the
+   * parse/deploy failure message.
+   */
+  deployDecision(xml: string): DeployDecisionResult;
+  /**
+   * Evaluate an already-deployed decision by id against `variablesJson` — the
+   * standalone counterpart to a business rule task's in-line evaluation. The
+   * decision must already be deployed (via {@link deploy} / {@link deployDecision}).
+   * Read-only: it evaluates and returns the result without mutating engine state
+   * or recording a decision instance. `variablesJson` is a JSON object string
+   * (`"{}"` / `""` for none). Returns the decision output plus its identity, or
+   * throws a JS error ("unknown decision" / evaluation failure).
+   */
+  evaluateDecision(
+    decisionId: string,
+    variablesJson: string,
+  ): EvaluateDecisionResult;
   /** Start an instance of `processId`, seeding it with `variablesJson`. */
   createInstance(processId: string, variablesJson: string): Snapshot;
   /**
@@ -315,6 +343,19 @@ class WasmBojtosSession implements BojtosSession {
 
   deploy(xml: string): { processIds: string[] } {
     return JSON.parse(this.engine.deploy(xml)) as { processIds: string[] };
+  }
+
+  deployDecision(xml: string): DeployDecisionResult {
+    return JSON.parse(this.engine.deployDecision(xml)) as DeployDecisionResult;
+  }
+
+  evaluateDecision(
+    decisionId: string,
+    variablesJson: string,
+  ): EvaluateDecisionResult {
+    return JSON.parse(
+      this.engine.evaluateDecision(decisionId, variablesJson || "{}"),
+    ) as EvaluateDecisionResult;
   }
 
   createInstance(processId: string, variablesJson: string): Snapshot {

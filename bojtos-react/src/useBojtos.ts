@@ -7,8 +7,10 @@ import {
   type DispatchOptions,
   dispatchRound,
   dispatchWorkers,
+  type DeployDecisionResult,
   type EngineReadModel,
   type EngineVariant,
+  type EvaluateDecisionResult,
   type FormResult,
   type JobHandler,
   type ProcessInstanceSearchQueryResult,
@@ -89,6 +91,24 @@ export interface BojtosControls {
   events: WasmEvent[];
   /** Start an instance; returns the post-run snapshot (with `created`) or null. */
   createInstance(processId: string, variablesJson: string): Snapshot | null;
+  /**
+   * Deploy a **DMN** decision-requirements resource, registering its decisions so
+   * a business rule task's `zeebe:calledDecision` resolves and
+   * {@link evaluateDecision} can run them. Returns the deployed decisions'
+   * metadata, or `null` before the engine is ready / on a deploy error (see
+   * `error`). Distinct from the BPMN `bpmn` prop the hook deploys automatically.
+   */
+  deployDecision(xml: string): DeployDecisionResult | null;
+  /**
+   * Evaluate an already-deployed decision by id against `variablesJson`
+   * (`"{}"` / `""` for none). Read-only — it does not mutate engine state. Returns
+   * the decision's output plus identity, or `null` before the engine is ready /
+   * on an evaluation error (see `error`).
+   */
+  evaluateDecision(
+    decisionId: string,
+    variablesJson: string,
+  ): EvaluateDecisionResult | null;
   /** Complete a waiting job, merging output variables. */
   completeJob(jobKey: string, variablesJson: string): Snapshot | null;
   /**
@@ -493,6 +513,45 @@ export function useBojtos({
       run((s) => s.createInstance(processId, variablesJson)),
     [run],
   );
+  const deployDecision = useCallback(
+    (xml: string): DeployDecisionResult | null => {
+      const session = sessionRef.current;
+      if (!session) return null;
+      try {
+        const result = session.deployDecision(xml);
+        setError(null);
+        // Registering decisions changed the engine's deployed resources; refresh
+        // the snapshot/event log and signal reactive read queries to re-pull.
+        setSnapshot(session.snapshot());
+        setEvents(readEvents(session));
+        bumpReadModel();
+        return result;
+      } catch (e) {
+        setError(String(e));
+        return null;
+      }
+    },
+    [bumpReadModel, readEvents],
+  );
+  const evaluateDecision = useCallback(
+    (
+      decisionId: string,
+      variablesJson: string,
+    ): EvaluateDecisionResult | null => {
+      const session = sessionRef.current;
+      if (!session) return null;
+      try {
+        // Read-only: no snapshot/read-model mutation, so nothing to refresh.
+        const result = session.evaluateDecision(decisionId, variablesJson);
+        setError(null);
+        return result;
+      } catch (e) {
+        setError(String(e));
+        return null;
+      }
+    },
+    [],
+  );
   const completeJob = useCallback(
     (jobKey: string, variablesJson: string) =>
       run((s) => s.completeJob(jobKey, variablesJson)),
@@ -707,6 +766,8 @@ export function useBojtos({
     snapshot,
     events,
     createInstance,
+    deployDecision,
+    evaluateDecision,
     completeJob,
     completeAgentJob,
     failJob,

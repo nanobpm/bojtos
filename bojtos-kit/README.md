@@ -27,6 +27,27 @@ Every command returns the post-run `Snapshot`: `activeElementIds` /
 For React, use [`@nanobpm/bojtos-react`](../bojtos-react), which owns the session
 lifecycle and reactive state on top of this kit.
 
+## DMN decisions — `deployDecision` / `evaluateDecision`
+
+Besides BPMN, a session can deploy and evaluate DMN decisions standalone (the
+counterpart to a `businessRuleTask`'s in-line evaluation):
+
+```ts
+const { decisions } = session.deployDecision(dmnXml); // registers every <decision>
+const { output } = session.evaluateDecision(
+  "jedi_or_sith",
+  JSON.stringify({ lightsaberColor: "blue" }),
+); // => "Jedi"
+```
+
+`deployDecision` returns the registered decisions' metadata; `evaluateDecision`
+is read-only (it does not mutate engine state or record a decision instance).
+`deploy` also accepts a DMN resource (the engine routes by content), but is
+typed for BPMN — prefer `deployDecision` so the result is typed. A
+`businessRuleTask` with a `zeebe:calledDecision` resolves against decisions
+registered by either entry point, surfacing its result in
+`snapshot.decisionInstances`.
+
 ## Engine variants — `lean` (default) and `readmodel`
 
 `@nanobpm/engine-wasm` ships two binaries; a session picks one via `variant`:
