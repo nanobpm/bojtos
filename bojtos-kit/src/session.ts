@@ -356,7 +356,17 @@ class WasmBojtosSession implements BojtosSession {
   }
 
   deployDecision(xml: string): DeployDecisionResult {
-    return JSON.parse(this.engine.deployDecision(xml)) as DeployDecisionResult;
+    // The engine also returns a post-deploy `snapshot`; like `deploy`, project
+    // it out so the returned value matches the declared type exactly (rather
+    // than carrying a hidden field). Call `snapshot()` for current run state.
+    const { decisionRequirementsId, decisionRequirementsKey, version, decisions } =
+      JSON.parse(this.engine.deployDecision(xml)) as DeployDecisionResult;
+    return {
+      decisionRequirementsId,
+      decisionRequirementsKey,
+      version,
+      decisions,
+    };
   }
 
   evaluateDecision(

@@ -70,6 +70,8 @@ test("deployDecision registers every decision in the DRG with typed metadata", a
 
     const ids = result.decisions.map((d) => d.decisionId).sort();
     assert.deepEqual(ids, ["force_user", "jedi_or_sith"]);
+    // The engine's post-deploy `snapshot` is projected out (mirrors `deploy`).
+    assert.ok(!("snapshot" in result), "snapshot is not surfaced");
 
     const jos = result.decisions.find((d) => d.decisionId === "jedi_or_sith");
     assert.ok(jos, "jedi_or_sith is registered");

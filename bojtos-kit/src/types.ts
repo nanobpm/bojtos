@@ -140,6 +140,11 @@ export interface DeployedDecision {
  * Every `<decision>` is registered by id so a business rule task's
  * `zeebe:calledDecision` resolves and {@link BojtosSession.evaluateDecision}
  * can run it.
+ *
+ * The engine also returns a post-deploy `snapshot`, but — as with
+ * {@link BojtosSession.deploy} — it is intentionally projected out here (a
+ * deployment records no run state worth surfacing); call
+ * {@link BojtosSession.snapshot} for the current state.
  */
 export interface DeployDecisionResult {
   decisionRequirementsId: string;
