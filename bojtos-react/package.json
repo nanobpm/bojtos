@@ -35,7 +35,7 @@
     "test:ci": "node --experimental-strip-types --test test/*.test.ts"
   },
   "dependencies": {
-    "@nanobpm/bojtos-kit": "^0.4.0"
+    "@nanobpm/bojtos-kit": "^0.11.0"
   },
   "peerDependencies": {
     "bpmn-js": ">=17",
