@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "@nanobpm/engine-testkit": "^0.1.0",
-    "@nanobpm/engine-wasm": "^0.9.1"
+    "@nanobpm/engine-wasm": "^0.9.3"
   },
   "devDependencies": {
     "typescript": "^5.6.3"
