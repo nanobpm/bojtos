@@ -35,7 +35,10 @@ const MANUAL_RELEASE_STEPS = [
 
 test("the release workflow is semantic-release on push to main", () => {
   assert.match(workflow, /push:\s*\n\s*branches:\s*\[\s*main\s*\]/, "release.yml triggers on push to main");
-  assert.match(workflow, /semantic-release/, "release.yml runs semantic-release");
+  // Match the executable release step, not any occurrence in the file —
+  // comments can keep naming semantic-release while the run command reverts
+  // to the manual publisher.
+  assert.match(workflow, /run:\s*\.\/node_modules\/\.bin\/semantic-release/, "release.yml runs semantic-release");
   const exec = releaserc.plugins.find((p) => Array.isArray(p) && p[0] === "@semantic-release/exec");
   assert.ok(exec, ".releaserc.json uses @semantic-release/exec");
   assert.match(exec[1].prepareCmd, /scripts\/set-version\.mjs/, "set-version.mjs stamps the version at release time");

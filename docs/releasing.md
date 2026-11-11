@@ -72,16 +72,37 @@ versions or push tags by hand.
    |------------------------------------------|------------------------------------------|
    | `fix:` / `perf:`                         | patch (`0.11.0` → `0.11.1`)              |
    | `feat:`                                  | minor (`0.11.0` → `0.12.0`)              |
-   | `BREAKING CHANGE:` footer or `type!:`    | major                                    |
+   | `BREAKING CHANGE:` footer                | major                                    |
    | `docs:` / `chore:` / `test:` / `ci:` / … | no release                               |
+
+   > **Note:** The current `.releaserc.json` uses commit-analyzer's default
+   > Angular preset, whose parser does **not** recognize the `type!:` shorthand
+   > (e.g. `feat!: remove an API`) as a breaking change. Always use a
+   > `BREAKING CHANGE:` footer for major releases.
 
 2. Merge to `main`. The `release` workflow then:
    1. runs semantic-release, which computes the next version;
    2. stamps it into both manifests and the internal dependency pin
       (`scripts/set-version.mjs`);
-   3. publishes `bojtos-kit` then `bojtos-react` via OIDC with provenance
+   3. pushes the `v<version>` tag;
+   4. publishes `bojtos-kit` then `bojtos-react` via OIDC with provenance
       (`scripts/release.mjs`, idempotent, so a re-run is safe);
-   4. creates the `v<version>` tag and a GitHub Release with generated notes.
+   5. creates a GitHub Release with generated notes.
+
+   > **Note:** semantic-release pushes the version tag (step 3) **before**
+   > invoking `publishCmd` (step 4). If the npm publish fails, the tag already
+   > exists, so re-running the workflow at the same commit finds no unreleased
+   > commits and skips publishing. To recover, retry the publisher directly with
+   > the failed version's manifests and build artifacts:
+   >
+   > ```bash
+   > git checkout v<version>
+   > npm ci && npm run build
+   > node scripts/release.mjs
+   > ```
+   >
+   > The publish script is idempotent, so this completes the release without
+   > duplicating already-published packages.
 3. Verify on npmjs.com:
    - <https://www.npmjs.com/package/@nanobpm/bojtos-kit>
    - <https://www.npmjs.com/package/@nanobpm/bojtos-react>
