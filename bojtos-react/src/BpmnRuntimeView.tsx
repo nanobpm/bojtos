@@ -100,6 +100,13 @@ export function BpmnRuntimeView({
       }
     });
     refit.observe(container);
+    // Native navigation (wheel / Ctrl+wheel zoom, drag-to-pan) is a user choice
+    // too: stop auto-fitting so a later resize doesn't discard it. Fit re-enables.
+    const userNavigated = () => {
+      if (importedRef.current) userZoomedRef.current = true;
+    };
+    container.addEventListener("wheel", userNavigated, { passive: true, capture: true });
+    container.addEventListener("pointerdown", userNavigated, { capture: true });
     viewer
       .importXML(xml)
       .then(() => {
@@ -113,6 +120,8 @@ export function BpmnRuntimeView({
       });
     return () => {
       refit.disconnect();
+      container.removeEventListener("wheel", userNavigated, { capture: true });
+      container.removeEventListener("pointerdown", userNavigated, { capture: true });
       viewer.destroy();
       viewerRef.current = null;
     };

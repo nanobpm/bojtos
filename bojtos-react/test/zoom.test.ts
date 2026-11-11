@@ -19,3 +19,10 @@ test("zoom is clamped to [MIN_ZOOM, MAX_ZOOM]", () => {
 test("a non-finite current zoom (no diagram yet) falls back to 1", () => {
   assert.equal(nextZoom(Number.NaN, "in"), nextZoom(1, "in"));
 });
+
+test("zoom never moves against the requested direction outside the bounds", () => {
+  assert.equal(nextZoom(MIN_ZOOM / 2, "out"), MIN_ZOOM / 2);
+  assert.equal(nextZoom(MAX_ZOOM * 2, "in"), MAX_ZOOM * 2);
+  assert.ok(nextZoom(MIN_ZOOM / 2, "in") > MIN_ZOOM / 2);
+  assert.ok(nextZoom(MAX_ZOOM * 2, "out") < MAX_ZOOM * 2);
+});
