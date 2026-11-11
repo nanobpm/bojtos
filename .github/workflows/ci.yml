@@ -30,3 +30,6 @@ jobs:
 
       - name: Test (react)
         run: npm run test:ci --workspace @nanobpm/bojtos-react
+
+      - name: Test (repo guards)
+        run: npm run test:repo
