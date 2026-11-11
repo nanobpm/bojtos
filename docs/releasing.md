@@ -16,10 +16,22 @@ Once published, anyone can build their own Bojtos demo (see the quickstart in
 
 ## How it works
 
-- `bojtos-react` links `bojtos-kit` as an npm workspace, and pins it with a
-  `^<version>` range that is published verbatim. If a contributor instead uses a
-  `file:` link, **`scripts/release.mjs`** rewrites it to `^<version>` at publish
-  time and restores it afterwards.
+- Releases are cut by **semantic-release** (`.releaserc.json`) on every push to
+  `main` (`.github/workflows/release.yml`). It reads the conventional commits
+  since the last `v*` tag, decides whether a release is due and computes the
+  next version. Both packages always release together, at the same version.
+- **The versions in the repo's `package.json` files are placeholders.** They
+  are never bumped by hand or committed back. At release time
+  **`scripts/set-version.mjs`** writes the computed version into every manifest
+  and rewrites the internal `@nanobpm/bojtos-*` dependency ranges to
+  `^<version>`. So the published `bojtos-react` always depends on the matching
+  `bojtos-kit`, whatever range the repo's manifest shows. If a contributor uses
+  a `file:` link instead, **`scripts/release.mjs`** rewrites it to `^<version>`
+  at publish time and restores it afterwards.
+- External dependencies (notably `@nanobpm/engine-wasm`) are **not** rewritten:
+  their ranges publish verbatim. On a `0.x` version a caret range stops at the
+  next minor (`^0.9.1` is `>=0.9.1 <0.10.0`), so adopting a new engine-wasm
+  minor needs an explicit `fix(deps)` bump here.
 - Authentication is **npm OIDC trusted publishing** — there is no `NPM_TOKEN`.
   CI mints a short-lived publish token from GitHub OIDC; each package must be
   bound to this repo + workflow on npmjs.com (one-time, below).
@@ -42,29 +54,35 @@ On npmjs.com, for **each** of `@nanobpm/bojtos-kit` and `@nanobpm/bojtos-react`:
 | Workflow filename   | `release.yml`  |
 | Environment         | *(leave blank)*|
 
-After that, tagged releases publish automatically with no secret. (If you ever
+After that, releases publish automatically with no secret. (If you ever
 create a brand-new `@nanobpm/*` package, its very first publish must be done
 locally by a maintainer with publish rights — a Trusted Publisher can only be
 configured on a package that already exists.)
 
 ## Cutting a release
 
-1. Bump the version in **both** packages to the same value:
-   - `bojtos-kit/package.json`
-   - `bojtos-react/package.json`
+There is no manual step: **merging a PR to `main` is the release.** Do not bump
+versions or push tags by hand.
 
-   (Keep `bojtos-react`'s `@nanobpm/bojtos-kit` dependency range covering the new
-   version.)
-2. Commit, open a PR, merge to `main`.
-3. Tag from `main` and push:
-   ```bash
-   git tag v0.4.0
-   git push origin v0.4.0
-   ```
-4. The `release` workflow builds/tests both packages, verifies the tag matches
-   both versions, and publishes them in dependency order via OIDC (with
-   provenance).
-5. Verify on npmjs.com:
+1. Use conventional-commit messages for whatever lands on `main`. With a squash
+   merge that is the PR title, or the single commit's message for a one-commit
+   PR; with a merge or rebase it is every commit. semantic-release reads them:
+
+   | Commit type                              | Release                                  |
+   |------------------------------------------|------------------------------------------|
+   | `fix:` / `perf:`                         | patch (`0.11.0` → `0.11.1`)              |
+   | `feat:`                                  | minor (`0.11.0` → `0.12.0`)              |
+   | `BREAKING CHANGE:` footer or `type!:`    | major                                    |
+   | `docs:` / `chore:` / `test:` / `ci:` / … | no release                               |
+
+2. Merge to `main`. The `release` workflow then:
+   1. runs semantic-release, which computes the next version;
+   2. stamps it into both manifests and the internal dependency pin
+      (`scripts/set-version.mjs`);
+   3. publishes `bojtos-kit` then `bojtos-react` via OIDC with provenance
+      (`scripts/release.mjs`, idempotent, so a re-run is safe);
+   4. creates the `v<version>` tag and a GitHub Release with generated notes.
+3. Verify on npmjs.com:
    - <https://www.npmjs.com/package/@nanobpm/bojtos-kit>
    - <https://www.npmjs.com/package/@nanobpm/bojtos-react>
 

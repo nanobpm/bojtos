@@ -69,19 +69,18 @@ compiled JS + `.d.ts` without re-bundling.
 
 ## Release
 
-Publishing is driven by a git tag and npm OIDC **trusted publishing** — there is
-no `NPM_TOKEN`. To cut a release:
+Releases are automatic: **merging to `main` is the release.**
+[semantic-release](https://semantic-release.gitbook.io/) reads the conventional
+commits that land on `main`: `fix:` gives a patch, `feat:` a minor, and
+`docs:`/`chore:` no release. It stamps the version into both packages, publishes
+`bojtos-kit` then `bojtos-react` via npm OIDC **trusted publishing** (no
+`NPM_TOKEN`, with provenance), and tags `v<version>` with a GitHub Release. The
+versions in the repo's `package.json` files are placeholders: never bump them or
+push tags by hand.
 
-1. Bump the version in **both** `bojtos-kit/package.json` and
-   `bojtos-react/package.json` to the same value (they release together).
-2. Commit, then push a tag `vX.Y.Z` matching that version.
-3. `.github/workflows/release.yml` builds, tests, verifies the tag matches the
-   package versions, and publishes `bojtos-kit` then `bojtos-react` in
-   dependency order (with npm provenance, since this repo is public).
-
-`scripts/release.mjs` also drives a local publish (`node scripts/release.mjs`,
-`--dry-run` to preview). See [docs/releasing.md](docs/releasing.md) for the
-one-time Trusted Publisher setup on npmjs.com.
+To preview the publish locally: `npm run build && node scripts/release.mjs --dry-run`.
+See [docs/releasing.md](docs/releasing.md) for details and the one-time Trusted
+Publisher setup on npmjs.com.
 
 ## License
 
