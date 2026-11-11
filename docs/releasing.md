@@ -92,12 +92,15 @@ versions or push tags by hand.
    > **Note:** semantic-release pushes the version tag (step 3) **before**
    > invoking `publishCmd` (step 4). If the npm publish fails, the tag already
    > exists, so re-running the workflow at the same commit finds no unreleased
-   > commits and skips publishing. To recover, retry the publisher directly with
-   > the failed version's manifests and build artifacts:
+   > commits and skips publishing. The stamped version is never committed, so
+   > the tag still carries placeholder manifest versions — re-stamp them before
+   > building and publishing:
    >
    > ```bash
    > git checkout v<version>
-   > npm ci && npm run build
+   > npm ci
+   > node scripts/set-version.mjs <version>
+   > npm run build
    > node scripts/release.mjs
    > ```
    >
