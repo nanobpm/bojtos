@@ -97,12 +97,12 @@ export function BpmnRuntimeView({
     userZoomedRef.current = false;
     const container = containerRef.current;
     const refit = new ResizeObserver(() => {
-      if (importedRef.current && !userZoomedRef.current) {
-        const canvas = viewer.get<Canvas>("canvas");
-        // diagram-js caches the container size; drop it so the fit uses the new one.
-        canvas.resized();
-        canvas.zoom("fit-viewport", "auto");
-      }
+      if (!importedRef.current) return;
+      const canvas = viewer.get<Canvas>("canvas");
+      // diagram-js caches the container size; always drop it so later zooms
+      // (manual or fit) centre on the real viewport. Only the auto-fit is gated.
+      canvas.resized();
+      if (!userZoomedRef.current) canvas.zoom("fit-viewport", "auto");
     });
     refit.observe(container);
     // Native navigation (wheel / Ctrl+wheel zoom, drag-to-pan) is a user choice
