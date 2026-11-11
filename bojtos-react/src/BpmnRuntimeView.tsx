@@ -8,6 +8,8 @@ interface Canvas {
   zoom(mode: string | number, center?: "auto"): number;
   addMarker(elementId: string, marker: string): void;
   removeMarker(elementId: string, marker: string): void;
+  /** Invalidate cached container dimensions (diagram-js). */
+  resized(): void;
 }
 
 interface Overlays {
@@ -96,17 +98,39 @@ export function BpmnRuntimeView({
     const container = containerRef.current;
     const refit = new ResizeObserver(() => {
       if (importedRef.current && !userZoomedRef.current) {
-        viewer.get<Canvas>("canvas").zoom("fit-viewport", "auto");
+        const canvas = viewer.get<Canvas>("canvas");
+        // diagram-js caches the container size; drop it so the fit uses the new one.
+        canvas.resized();
+        canvas.zoom("fit-viewport", "auto");
       }
     });
     refit.observe(container);
     // Native navigation (wheel / Ctrl+wheel zoom, drag-to-pan) is a user choice
     // too: stop auto-fitting so a later resize doesn't discard it. Fit re-enables.
+    // A plain click is not navigation: only a drag past a small threshold counts.
+    const DRAG_THRESHOLD = 4;
+    let press: { x: number; y: number } | null = null;
     const userNavigated = () => {
       if (importedRef.current) userZoomedRef.current = true;
     };
+    const onDown = (e: PointerEvent) => {
+      press = { x: e.clientX, y: e.clientY };
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!press) return;
+      if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > DRAG_THRESHOLD) {
+        press = null;
+        userNavigated();
+      }
+    };
+    const onUp = () => {
+      press = null;
+    };
     container.addEventListener("wheel", userNavigated, { passive: true, capture: true });
-    container.addEventListener("pointerdown", userNavigated, { capture: true });
+    container.addEventListener("pointerdown", onDown, { capture: true });
+    container.addEventListener("pointermove", onMove, { capture: true });
+    window.addEventListener("pointerup", onUp, { capture: true });
+    window.addEventListener("pointercancel", onUp, { capture: true });
     viewer
       .importXML(xml)
       .then(() => {
@@ -121,7 +145,10 @@ export function BpmnRuntimeView({
     return () => {
       refit.disconnect();
       container.removeEventListener("wheel", userNavigated, { capture: true });
-      container.removeEventListener("pointerdown", userNavigated, { capture: true });
+      container.removeEventListener("pointerdown", onDown, { capture: true });
+      container.removeEventListener("pointermove", onMove, { capture: true });
+      window.removeEventListener("pointerup", onUp, { capture: true });
+      window.removeEventListener("pointercancel", onUp, { capture: true });
       viewer.destroy();
       viewerRef.current = null;
     };
@@ -185,7 +212,10 @@ export function BpmnRuntimeView({
     if (!viewer || !importedRef.current) return;
     const canvas = viewer.get<Canvas>("canvas");
     userZoomedRef.current = to !== "fit";
-    if (to === "fit") canvas.zoom("fit-viewport", "auto");
+    if (to === "fit") {
+      canvas.resized();
+      canvas.zoom("fit-viewport", "auto");
+    }
     // "auto" zooms around the centre of the visible area, so the view doesn't jump.
     else canvas.zoom(nextZoom(canvas.zoom(), to), "auto");
   }
