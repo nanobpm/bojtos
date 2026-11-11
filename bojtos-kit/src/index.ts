@@ -6,6 +6,7 @@ export {
   ensureWasm,
   ensureReadModelWasm,
   createBojtosSession,
+  deployedProcessIds,
   type BojtosSession,
   type ReadModelBojtosSession,
   type EngineVariant,

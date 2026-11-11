@@ -5,7 +5,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { createBojtosSession, dispatchWorkers } from "../dist/index.js";
+import {
+  createBojtosSession,
+  deployedProcessIds,
+  dispatchWorkers,
+} from "../dist/index.js";
 
 const require = createRequire(import.meta.url);
 const wasmBytes = await readFile(
@@ -54,17 +58,52 @@ test("replayEvents rebuilds an identical simulation in a fresh session", async (
 test("replayEvents overwrites whatever the session already held", async () => {
   const source = await runOne();
   const trace = source.events();
-  const expectedCount = source.snapshot().completedInstances;
+  const expected = source.snapshot();
   source.free();
 
-  // A session with its own unrelated run: replaying must replace it wholesale,
-  // not merge into it.
+  // A target whose state differs from the trace (two completed instances vs
+  // one), so a replay that does nothing — or merges — cannot pass.
   const target = await runOne();
-  assert.equal(target.snapshot().completedInstances, 1);
+  target.createInstance("one", "{}");
+  await dispatchWorkers(target, { work: () => ({ done: true }) });
+  assert.equal(target.snapshot().completedInstances, 2);
+  assert.notEqual(target.events().length, trace.length);
+
   const restored = target.replayEvents(trace);
-  assert.equal(restored.completedInstances, expectedCount);
+  assert.equal(restored.completedInstances, expected.completedInstances);
+  assert.equal(restored.totalInstances, expected.totalInstances);
   assert.equal(restored.eventCount, trace.length);
+  assert.deepEqual(target.snapshot(), restored);
+  // The event log is replaced wholesale, not appended to.
+  assert.deepEqual(target.events(), trace);
   target.free();
+});
+
+const TWO_PROCESS_BPMN = (a, b) => `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">
+  <bpmn:process id="${a}" isExecutable="true"><bpmn:startEvent id="s1" /></bpmn:process>
+  <bpmn:process id="${b}" isExecutable="true"><bpmn:startEvent id="s2" /></bpmn:process>
+</bpmn:definitions>`;
+
+test("deployedProcessIds lists a trace's processes in order, de-duplicated", async () => {
+  const session = await createBojtosSession({ wasm: wasmBytes });
+  const first = session.deploy(TWO_PROCESS_BPMN("b", "a")).processIds;
+  session.deploy(ONE_TASK_BPMN);
+  session.deploy(TWO_PROCESS_BPMN("b", "a")); // redeploy: no duplicates
+  const trace = session.events();
+  session.free();
+  assert.deepEqual(deployedProcessIds(trace), [...first, "one"]);
+  // Restoring into a session that deployed something else yields the trace's ids.
+  const other = await runOne();
+  other.replayEvents(trace);
+  assert.deepEqual(deployedProcessIds(other.events()), [...first, "one"]);
+  other.free();
+  // Malformed / empty input is tolerated, never throws.
+  assert.deepEqual(deployedProcessIds([]), []);
+  assert.deepEqual(
+    deployedProcessIds([{ seq: 1, now: 0, type: "ProcessDeployed", process: null }]),
+    [],
+  );
 });
 
 test("replayEvents rejects a malformed trace and leaves the session intact", async () => {

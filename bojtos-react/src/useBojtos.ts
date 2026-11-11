@@ -4,6 +4,7 @@ import {
   type AgentResult,
   type BojtosSession,
   createBojtosSession,
+  deployedProcessIds,
   type DispatchOptions,
   dispatchRound,
   dispatchWorkers,
@@ -589,7 +590,14 @@ export function useBojtos({
     [run],
   );
   const replayEvents = useCallback(
-    (events: WasmEvent[]) => run((s) => s.replayEvents(events)),
+    (events: WasmEvent[]) => {
+      const snap = run((s) => s.replayEvents(events));
+      // Replay replaces the deployments too, so re-derive the deployable ids
+      // from the restored trace. On a decode failure (`null`) the session is
+      // untouched, so `processIds` must stay as it was.
+      if (snap) setProcessIds(deployedProcessIds(events));
+      return snap;
+    },
     [run],
   );
 
