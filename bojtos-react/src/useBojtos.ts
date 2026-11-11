@@ -4,6 +4,7 @@ import {
   type AgentResult,
   type BojtosSession,
   createBojtosSession,
+  deployedProcessIds,
   type DispatchOptions,
   dispatchRound,
   dispatchWorkers,
@@ -225,6 +226,15 @@ export interface BojtosControls {
     workers: Record<string, JobHandler>,
     opts?: DispatchOptions,
   ): Promise<RoundResult | null>;
+  /**
+   * Rebuild the entire simulation from a trace previously read off {@link events}
+   * — replaces the live engine's state (instances, jobs, timers, event log,
+   * clock) with the reconstructed run and reflects the resulting snapshot/events.
+   * Returns the restored snapshot, or null if there is no live session or the
+   * trace failed to decode (the engine is left untouched on a decode failure).
+   * The inverse of reading {@link events}: persist a run, then restore it.
+   */
+  replayEvents(events: WasmEvent[]): Snapshot | null;
   /** Re-deploy the diagram on the existing engine, clearing run state. */
   reset(): void;
 }
@@ -654,6 +664,17 @@ export function useBojtos({
       run((s) => s.updateUserTask(userTaskKey, changesetJson)),
     [run],
   );
+  const replayEvents = useCallback(
+    (events: WasmEvent[]) => {
+      const snap = run((s) => s.replayEvents(events));
+      // Replay replaces the deployments too, so re-derive the deployable ids
+      // from the restored trace. On a decode failure (`null`) the session is
+      // untouched, so `processIds` must stay as it was.
+      if (snap) setProcessIds(deployedProcessIds(events));
+      return snap;
+    },
+    [run],
+  );
 
   const runWorkers = useCallback(
     async (
@@ -803,6 +824,7 @@ export function useBojtos({
     assignUserTask,
     unassignUserTask,
     updateUserTask,
+    replayEvents,
     runWorkers,
     stepWorkers,
     reset,

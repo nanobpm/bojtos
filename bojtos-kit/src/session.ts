@@ -71,6 +71,26 @@ export type WasmSource = InitInput;
  * that supplies a working `WasmSource` after the default loader couldn't resolve
  * the binary — can retry rather than being stuck on the first rejection.
  */
+/**
+ * The deployable process ids recorded in a trace, in deployment order and
+ * de-duplicated (a redeployed id keeps its first position). This is the
+ * trace-side counterpart of `deploy(xml).processIds`: after
+ * `replayEvents(trace)` replaces a session's deployments, it tells a caller
+ * which processes the restored session can now instantiate.
+ */
+export function deployedProcessIds(events: readonly WasmEvent[]): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const e of events ?? []) {
+    if (e?.type !== "ProcessDeployed") continue;
+    const id = (e.process as { id?: unknown } | null | undefined)?.id;
+    if (typeof id !== "string" || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
 export function ensureWasm(source?: WasmSource): Promise<void> {
   if (!wasmReady) {
     wasmReady = init(
@@ -275,6 +295,17 @@ export interface BojtosSession {
   reset(): void;
   /** The full ordered event log emitted so far. */
   events(): WasmEvent[];
+  /**
+   * Rebuild the entire simulation from a trace previously returned by
+   * {@link events} — the engine decodes the journal and replays it, replacing
+   * whatever this session currently holds (deployed definitions, instances,
+   * jobs, timers, event log and clock) with the reconstructed state. Returns the
+   * resulting {@link Snapshot}. Replacement happens only if decoding succeeds; a
+   * malformed trace throws and leaves the session untouched. This is the inverse
+   * of {@link events}: `events()` serialises a run, `replayEvents(...)` restores
+   * it — e.g. to reload a saved run, or hand one session's run to another.
+   */
+  replayEvents(events: WasmEvent[]): Snapshot;
   /** The current simulation state. */
   snapshot(): Snapshot;
   /** Release the underlying wasm engine. */
@@ -516,6 +547,10 @@ class WasmBojtosSession implements BojtosSession {
 
   events(): WasmEvent[] {
     return JSON.parse(this.engine.events()) as WasmEvent[];
+  }
+
+  replayEvents(events: WasmEvent[]): Snapshot {
+    return parseSnapshot(this.engine.replayEvents(JSON.stringify(events ?? [])));
   }
 
   snapshot(): Snapshot {
