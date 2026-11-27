@@ -56,7 +56,7 @@ test("the read-model variant exposes the read channel over the lean surface", as
 
   // searchUserTasks projects the parked task, typed as UserTaskSearchQueryResult.
   const tasks: UserTaskSearchQueryResult = session.searchUserTasks(
-    JSON.stringify({ state: "CREATED" }),
+    JSON.stringify({ filter: { state: "CREATED" } }),
   );
   assert.ok(Array.isArray(tasks.items), "items is an array");
   assert.equal(tasks.items.length, 1);

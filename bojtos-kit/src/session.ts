@@ -614,7 +614,9 @@ class WasmReadModelSession
     // structural conformance to engine-testkit's port a compile-time assignment.
     const searchRows = (query: UserTaskQuery): UserTaskRow[] =>
       this.searchUserTasks(
-        JSON.stringify(query.state === undefined ? {} : { state: query.state }),
+        JSON.stringify(
+          query.state === undefined ? {} : { filter: { state: query.state } },
+        ),
       )
         .items.filter((task) => {
           // The wasm read model honours the lifecycle `state` filter itself; the
